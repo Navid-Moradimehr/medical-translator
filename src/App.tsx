@@ -789,7 +789,7 @@ function App() {
                     </select>
                   </div>
 
-                                      <div>
+      <div>
                       <label className="block text-sm font-medium text-white/80 mb-3">
                         API Key Management
                       </label>
@@ -867,7 +867,7 @@ function App() {
                               </button>
                             </div>
                           </div>
-                        </div>
+      </div>
                       )}
 
                       {/* Saved API Keys */}
@@ -883,7 +883,7 @@ function App() {
                                   className="text-red-400 hover:text-red-300 text-sm"
                                 >
                                   Remove
-                                </button>
+        </button>
                               </div>
                             ))}
                           </div>
