@@ -512,39 +512,39 @@ function App() {
       
       {/* Header */}
       <header className="relative z-10 bg-white/10 backdrop-blur-xl border-b border-white/20">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
             <motion.div 
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
-              className="flex items-center space-x-4"
+              className="flex items-center space-x-3 sm:space-x-4"
             >
               <div className="relative">
-                <Stethoscope className="w-10 h-10 text-white" />
+                <Stethoscope className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
                 <motion.div
                   animate={{ rotate: 360 }}
                   transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                  className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full"
+                  className="absolute -top-1 -right-1 w-3 h-3 sm:w-4 sm:h-4 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full"
                 >
-                  <Sparkles className="w-3 h-3 text-white" />
+                  <Sparkles className="w-2 h-2 sm:w-3 sm:h-3 text-white" />
                 </motion.div>
               </div>
               <div>
-                <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-purple-200 bg-clip-text text-transparent">
+                <h1 className="text-xl sm:text-3xl font-bold bg-gradient-to-r from-white to-purple-200 bg-clip-text text-transparent">
                   Medical Translator
                 </h1>
-                <p className="text-purple-200 text-sm">AI-Powered Medical Communication</p>
+                <p className="text-purple-200 text-xs sm:text-sm">AI-Powered Medical Communication</p>
               </div>
             </motion.div>
             
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2">
+            <div className="flex items-center justify-center sm:justify-end space-x-2 sm:space-x-4">
+              <div className="flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-3 sm:px-4 py-2">
                 {isOnline ? (
-                  <Wifi className="w-4 h-4 text-green-400" />
+                  <Wifi className="w-3 h-3 sm:w-4 sm:h-4 text-green-400" />
                 ) : (
-                  <WifiOff className="w-4 h-4 text-red-400" />
+                  <WifiOff className="w-3 h-3 sm:w-4 sm:h-4 text-red-400" />
                 )}
-                <span className="text-white text-sm">
+                <span className="text-white text-xs sm:text-sm">
                   {isOnline ? 'Online' : 'Offline'}
                 </span>
               </div>
@@ -553,54 +553,54 @@ function App() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setShowSettings(!showSettings)}
-                className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white px-6 py-3 rounded-xl transition-all duration-200 flex items-center space-x-2"
+                className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white px-2 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-1 sm:space-x-2"
               >
-                <Settings className="w-5 h-5" />
-                <span>Settings</span>
+                <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span className="text-xs sm:text-base">Settings</span>
               </motion.button>
             </div>
           </div>
         </div>
       </header>
 
-      <div className="relative z-10 max-w-4xl mx-auto p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="relative z-10 max-w-4xl mx-auto p-4 sm:p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
           
           {/* Main Translation Interface - Centered */}
           <div className="lg:col-span-2">
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-2xl"
+              className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-4 sm:p-8 shadow-2xl"
             >
               {/* Role Indicator */}
-              <div className="flex items-center justify-center mb-8">
+              <div className="flex items-center justify-center mb-6 sm:mb-8">
                 <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-2 border border-white/20">
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-1 sm:space-x-2">
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => setIsDoctor(true)}
-                      className={`flex items-center space-x-3 px-6 py-3 rounded-xl transition-all duration-300 ${
+                      className={`flex items-center space-x-2 sm:space-x-3 px-3 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-300 text-sm sm:text-base ${
                         isDoctor 
                           ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg' 
                           : 'text-white/70 hover:text-white hover:bg-white/10'
                       }`}
                     >
-                      <User className="w-5 h-5" />
+                      <User className="w-4 h-4 sm:w-5 sm:h-5" />
                       <span className="font-medium">Doctor</span>
                     </motion.button>
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => setIsDoctor(false)}
-                      className={`flex items-center space-x-3 px-6 py-3 rounded-xl transition-all duration-300 ${
+                      className={`flex items-center space-x-2 sm:space-x-3 px-3 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-300 text-sm sm:text-base ${
                         !isDoctor 
                           ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg' 
                           : 'text-white/70 hover:text-white hover:bg-white/10'
                       }`}
                     >
-                      <User className="w-5 h-5" />
+                      <User className="w-4 h-4 sm:w-5 sm:h-5" />
                       <span className="font-medium">Patient</span>
                     </motion.button>
                   </div>
@@ -608,12 +608,12 @@ function App() {
               </div>
 
               {/* Recording Controls */}
-              <div className="flex items-center justify-center space-x-8 mb-10">
+              <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 lg:space-x-8 mb-6 sm:mb-10">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={() => setShowManualInput(!showManualInput)}
-                  className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white px-6 py-3 rounded-xl transition-all duration-200 flex items-center space-x-2"
+                  className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-2 text-sm sm:text-base"
                 >
                   <span>Text Input</span>
                 </motion.button>
@@ -623,16 +623,16 @@ function App() {
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
                   onClick={startRecording}
-                  className={`relative w-24 h-24 rounded-full flex items-center justify-center text-white shadow-2xl transition-all duration-300 ${
+                  className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center text-white shadow-2xl transition-all duration-300 ${
                     isRecording 
                       ? 'bg-gradient-to-r from-red-500 to-pink-600 animate-pulse' 
                       : 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700'
                   }`}
                 >
                   {isRecording ? (
-                    <MicOff className="w-10 h-10" />
+                    <MicOff className="w-8 h-8 sm:w-10 sm:h-10" />
                   ) : (
-                    <Mic className="w-10 h-10" />
+                    <Mic className="w-8 h-8 sm:w-10 sm:h-10" />
                   )}
                   
                   {/* Recording animation rings */}
@@ -658,9 +658,9 @@ function App() {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={clearMessages}
-                  className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white px-6 py-3 rounded-xl transition-all duration-200 flex items-center space-x-2"
+                  className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-2 text-sm sm:text-base"
                 >
-                  <RotateCcw className="w-5 h-5" />
+                  <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
                   <span>Clear</span>
                 </motion.button>
                 
@@ -668,14 +668,14 @@ function App() {
               </div>
 
               {/* Language Selectors */}
-              <div className="flex items-center justify-center space-x-8 mb-8">
+              <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 lg:space-x-8 mb-6 sm:mb-8">
                 {/* Source Language */}
-                <div className="text-center">
-                  <label className="block text-sm text-white/60 mb-2">Speak in:</label>
+                <div className="text-center w-full sm:w-auto">
+                  <label className="block text-xs sm:text-sm text-white/60 mb-2">Speak in:</label>
                   <select
                     value={sourceLanguage}
                     onChange={(e) => setSourceLanguage(e.target.value)}
-                    className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-6 py-3 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
+                    className="w-full max-w-[200px] sm:w-auto bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-6 py-2 sm:py-3 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 text-sm sm:text-base"
                   >
                     <option value="en-US" className="bg-gray-800 text-white">English (US)</option>
                     <option value="es-ES" className="bg-gray-800 text-white">Spanish (España)</option>
@@ -689,12 +689,12 @@ function App() {
                 </div>
 
                 {/* Target Language */}
-                <div className="text-center">
-                  <label className="block text-sm text-white/60 mb-2">Translate to:</label>
+                <div className="text-center w-full sm:w-auto">
+                  <label className="block text-xs sm:text-sm text-white/60 mb-2">Translate to:</label>
                   <select
                     value={currentLanguage}
                     onChange={(e) => setCurrentLanguage(e.target.value)}
-                    className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-6 py-3 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
+                    className="w-full max-w-[200px] sm:w-auto bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-6 py-2 sm:py-3 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 text-sm sm:text-base"
                   >
                     <option value="en" className="bg-gray-800 text-white">English</option>
                     <option value="es" className="bg-gray-800 text-white">Spanish (Español)</option>
@@ -742,16 +742,18 @@ function App() {
                 <motion.div 
                   animate={{ scale: isRecording ? [1, 1.05, 1] : 1 }}
                   transition={{ duration: 1, repeat: isRecording ? Infinity : 0 }}
-                  className="inline-flex items-center space-x-3 bg-white/10 backdrop-blur-sm rounded-full px-6 py-3 border border-white/20"
+                  className="inline-flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-3 bg-white/10 backdrop-blur-sm rounded-full px-4 sm:px-6 py-3 border border-white/20"
                 >
-                  <div className={`w-3 h-3 rounded-full ${isRecording ? 'bg-red-400 animate-pulse' : 'bg-green-400'}`}></div>
-                  <span className="text-white font-medium">
-                    {isRecording ? 'Recording...' : 'Ready to translate'}
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full ${isRecording ? 'bg-red-400 animate-pulse' : 'bg-green-400'}`}></div>
+                    <span className="text-white font-medium text-sm sm:text-base">
+                      {isRecording ? 'Recording...' : 'Ready to translate'}
+                    </span>
+                    {isRecording && <Zap className="w-3 h-3 sm:w-4 sm:h-4 text-yellow-400 animate-pulse" />}
+                  </div>
                   <span className="text-xs text-white/60">
                     {sourceLanguage.split('-')[0].toUpperCase()} → {currentLanguage.toUpperCase()}
                   </span>
-                  {isRecording && <Zap className="w-4 h-4 text-yellow-400 animate-pulse" />}
                 </motion.div>
               </div>
             </motion.div>
@@ -764,22 +766,22 @@ function App() {
                 initial={{ opacity: 0, x: 300 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 300 }}
-                className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-2xl"
+                className="lg:col-span-1 bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-4 sm:p-6 shadow-2xl"
               >
-                                  <div className="flex items-center space-x-3 mb-6">
-                    <Settings className="w-6 h-6 text-white" />
-                    <h3 className="text-xl font-semibold text-white">Settings</h3>
+                                  <div className="flex items-center space-x-3 mb-4 sm:mb-6">
+                    <Settings className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                    <h3 className="text-lg sm:text-xl font-semibold text-white">Settings</h3>
                   </div>
                   
-                  <div className="space-y-6">
+                  <div className="space-y-4 sm:space-y-6">
                     <div>
-                      <label className="block text-sm font-medium text-white/80 mb-3">
+                      <label className="block text-xs sm:text-sm font-medium text-white/80 mb-2 sm:mb-3">
                         Translation Provider
                       </label>
                       <select
                         value={selectedProvider}
                         onChange={(e) => setSelectedProvider(e.target.value)}
-                        className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-purple-500 transition-all duration-200"
+                        className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-4 py-2 sm:py-3 text-white focus:ring-2 focus:ring-purple-500 transition-all duration-200 text-sm sm:text-base"
                       >
                       {providers.map(provider => (
                         <option key={provider.id} value={provider.id} className="bg-gray-800 text-white">
@@ -790,7 +792,7 @@ function App() {
                   </div>
 
       <div>
-                      <label className="block text-sm font-medium text-white/80 mb-3">
+                      <label className="block text-xs sm:text-sm font-medium text-white/80 mb-2 sm:mb-3">
                         API Key Management
                       </label>
                       
@@ -808,7 +810,7 @@ function App() {
                               setShowApiKeyInput(false)
                             }
                           }}
-                          className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-purple-500 transition-all duration-200"
+                          className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-4 py-2 sm:py-3 text-white focus:ring-2 focus:ring-purple-500 transition-all duration-200 text-sm sm:text-base"
                         >
                           <option value="" className="bg-gray-800 text-white">No API Key Selected</option>
                           <option value="add-new" className="bg-gray-800 text-white">+ Add API Key</option>
@@ -830,13 +832,13 @@ function App() {
                               placeholder="API Key Name"
                               value={newApiKey}
                               onChange={(e) => setNewApiKey(e.target.value)}
-                              className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:ring-2 focus:ring-purple-500 transition-all duration-200"
+                              className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-4 py-2 sm:py-3 text-white placeholder-white/50 focus:ring-2 focus:ring-purple-500 transition-all duration-200 text-sm sm:text-base"
                             />
                             <input
                               type="password"
                               placeholder="sk-..."
                               id="apiKeyInput"
-                              className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:ring-2 focus:ring-purple-500 transition-all duration-200"
+                              className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-4 py-2 sm:py-3 text-white placeholder-white/50 focus:ring-2 focus:ring-purple-500 transition-all duration-200 text-sm sm:text-base"
                             />
                             <div className="flex space-x-2">
                               <button
