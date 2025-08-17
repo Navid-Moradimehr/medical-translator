@@ -24,6 +24,8 @@ import {
   createSkipLink,
   LANGUAGE_NAMES 
 } from './utils/accessibility'
+import { secureStorage, migrateExistingKeys } from './utils/secureStorage'
+import { hipaaCompliance, createPrivacyConsentDialog } from './utils/hipaa'
 
 // Type declarations for Web Speech API
 declare global {
@@ -71,47 +73,117 @@ function App() {
   const [manualText, setManualText] = useState<string>('')
   const [showManualInput, setShowManualInput] = useState(false)
 
-  // Load API keys from localStorage on component mount
+  // Load API keys from secure storage on component mount
   useEffect(() => {
-    const savedKeys = localStorage.getItem('api_keys')
-    if (savedKeys) {
-      setApiKeys(JSON.parse(savedKeys))
+    const initializeSecureStorage = async () => {
+      try {
+        // Initialize secure storage
+        const initialized = await secureStorage.initialize()
+        
+        if (initialized) {
+          // Migrate existing keys if any
+          const migration = await migrateExistingKeys()
+          if (migration.migrated > 0) {
+            toast.success(`Migrated ${migration.migrated} API keys to secure storage`)
+          }
+          if (migration.failed > 0) {
+            toast.error(`Failed to migrate ${migration.failed} API keys`)
+          }
+          
+          // Load encrypted keys
+          const keyNames = await secureStorage.listApiKeys()
+          const loadedKeys: Record<string, string> = {}
+          
+          for (const name of keyNames) {
+            const key = await secureStorage.getApiKey(name)
+            if (key) {
+              loadedKeys[name] = key
+            }
+          }
+          
+          setApiKeys(loadedKeys)
+        } else {
+          toast.error('Failed to initialize secure storage')
+        }
+      } catch (error) {
+        console.error('Error initializing secure storage:', error)
+        toast.error('Secure storage initialization failed')
+      }
     }
+    
+    initializeSecureStorage()
   }, [])
 
-  // Save API keys to localStorage
-  const saveApiKey = (name: string, key: string) => {
-    // Basic validation for API key name and value
-    if (!name.trim() || !key.trim()) {
-      toast.error('API key name and value are required')
-      return
+  // Initialize HIPAA compliance and privacy settings
+  useEffect(() => {
+    // Initialize privacy settings
+    hipaaCompliance.initializePrivacySettings()
+    
+    // Check if consent is needed
+    const consent = hipaaCompliance.getConsent()
+    if (!Object.values(consent).some(Boolean)) {
+      // Show privacy consent dialog
+      const dialog = createPrivacyConsentDialog(
+        () => {
+          toast.success('Privacy settings configured')
+          hipaaCompliance.logAuditEntry('privacy_consent_given')
+        },
+        () => {
+          toast.info('Using minimal privacy settings')
+          hipaaCompliance.logAuditEntry('privacy_consent_declined')
+        }
+      )
+      document.body.appendChild(dialog)
     }
     
-    // Sanitize API key name (not the key itself as it may contain special characters)
-    const sanitizedName = name.trim().replace(/[<>\"'&]/g, '')
+    // Auto-delete expired data
+    hipaaCompliance.autoDeleteExpiredData()
     
-    if (sanitizedName !== name.trim()) {
-      toast.error('API key name contains invalid characters')
-      return
+    // Log app initialization
+    hipaaCompliance.logAuditEntry('app_initialized')
+  }, [])
+
+  // Save API keys to secure storage
+  const saveApiKey = async (name: string, key: string) => {
+    try {
+      const result = await secureStorage.storeApiKey(name, key)
+      
+      if (result.success) {
+        const updatedKeys = { ...apiKeys, [name]: key }
+        setApiKeys(updatedKeys)
+        setNewApiKey('')
+        toast.success('API key saved securely!')
+      } else {
+        toast.error(`Failed to save API key: ${result.error}`)
+      }
+    } catch (error) {
+      console.error('Error saving API key:', error)
+      toast.error('Failed to save API key securely')
     }
-    
-    const updatedKeys = { ...apiKeys, [sanitizedName]: key }
-    setApiKeys(updatedKeys)
-    localStorage.setItem('api_keys', JSON.stringify(updatedKeys))
-    setNewApiKey('')
-    toast.success('API key saved!')
   }
 
   // Remove API key
-  const removeApiKey = (name: string) => {
-    const updatedKeys = { ...apiKeys }
-    delete updatedKeys[name]
-    setApiKeys(updatedKeys)
-    localStorage.setItem('api_keys', JSON.stringify(updatedKeys))
-    if (selectedApiKey === name) {
-      setSelectedApiKey('')
+  const removeApiKey = async (name: string) => {
+    try {
+      const result = await secureStorage.removeApiKey(name)
+      
+      if (result.success) {
+        const updatedKeys = { ...apiKeys }
+        delete updatedKeys[name]
+        setApiKeys(updatedKeys)
+        
+        if (selectedApiKey === name) {
+          setSelectedApiKey('')
+        }
+        
+        toast.success('API key removed!')
+      } else {
+        toast.error(`Failed to remove API key: ${result.error}`)
+      }
+    } catch (error) {
+      console.error('Error removing API key:', error)
+      toast.error('Failed to remove API key')
     }
-    toast.success('API key removed!')
   }
 
   // Manual text translation
@@ -149,6 +221,14 @@ function App() {
     
     // Announce translation to screen readers
     ScreenReader.announceTranslation(manualText, translatedText, currentLanguage)
+    
+    // Log translation for audit trail
+    hipaaCompliance.logAuditEntry('manual_translation', {
+      sourceLanguage: sourceLanguage,
+      targetLanguage: currentLanguage,
+      isDoctor,
+      messageCount: messages.length + 1
+    })
     
     setManualText('')
     setShowManualInput(false)
@@ -481,6 +561,14 @@ function App() {
           
           // Announce translation to screen readers
           ScreenReader.announceTranslation(sanitizationResult.sanitized, translatedText, currentLanguage)
+          
+          // Log speech translation for audit trail
+          hipaaCompliance.logAuditEntry('speech_translation', {
+            sourceLanguage: sourceLanguage,
+            targetLanguage: currentLanguage,
+            isDoctor,
+            messageCount: messages.length + 1
+          })
         }
         
         recognition.onerror = (event: any) => {
@@ -548,6 +636,11 @@ function App() {
   const clearMessages = () => {
     setMessages([])
     toast.success('Conversation cleared')
+    
+    // Log conversation clear for audit trail
+    hipaaCompliance.logAuditEntry('conversation_cleared', {
+      messageCount: messages.length
+    })
   }
 
   // Removed test function - no longer needed
@@ -647,11 +740,13 @@ function App() {
                       onClick={() => {
                         setIsDoctor(true)
                         ScreenReader.announceRoleSwitch(true)
+                        hipaaCompliance.logAuditEntry('role_switch', { role: 'doctor' })
                       }}
-                      onKeyDown={(e) => handleKeyboardNavigation(e, () => {
-                        setIsDoctor(true)
-                        ScreenReader.announceRoleSwitch(true)
-                      })}
+                                              onKeyDown={(e) => handleKeyboardNavigation(e, () => {
+                          setIsDoctor(true)
+                          ScreenReader.announceRoleSwitch(true)
+                          hipaaCompliance.logAuditEntry('role_switch', { role: 'doctor' })
+                        })}
                       {...getAccessibilityProps('role-switch', { isDoctor: true })}
                       className={`flex items-center space-x-2 sm:space-x-3 px-3 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-300 text-sm sm:text-base ${
                         isDoctor 
@@ -668,11 +763,13 @@ function App() {
                       onClick={() => {
                         setIsDoctor(false)
                         ScreenReader.announceRoleSwitch(false)
+                        hipaaCompliance.logAuditEntry('role_switch', { role: 'patient' })
                       }}
-                      onKeyDown={(e) => handleKeyboardNavigation(e, () => {
-                        setIsDoctor(false)
-                        ScreenReader.announceRoleSwitch(false)
-                      })}
+                                              onKeyDown={(e) => handleKeyboardNavigation(e, () => {
+                          setIsDoctor(false)
+                          ScreenReader.announceRoleSwitch(false)
+                          hipaaCompliance.logAuditEntry('role_switch', { role: 'patient' })
+                        })}
                       {...getAccessibilityProps('role-switch', { isDoctor: false })}
                       className={`flex items-center space-x-2 sm:space-x-3 px-3 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-300 text-sm sm:text-base ${
                         !isDoctor 
@@ -931,10 +1028,10 @@ function App() {
                             />
                             <div className="flex space-x-2">
                               <button
-                                onClick={() => {
+                                onClick={async () => {
                                   const keyInput = document.getElementById('apiKeyInput') as HTMLInputElement
                                   if (newApiKey && keyInput.value) {
-                                    saveApiKey(newApiKey, keyInput.value)
+                                    await saveApiKey(newApiKey, keyInput.value)
                                     keyInput.value = ''
                                     setShowApiKeyInput(false)
                                   } else {
@@ -970,7 +1067,7 @@ function App() {
                               <div key={key} className="flex items-center justify-between p-3 bg-white/5 rounded-xl">
                                 <span className="text-white text-sm">{key}</span>
                                 <button
-                                  onClick={() => removeApiKey(key)}
+                                  onClick={async () => await removeApiKey(key)}
                                   className="text-red-400 hover:text-red-300 text-sm"
                                 >
                                   Remove
