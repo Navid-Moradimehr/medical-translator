@@ -16,6 +16,14 @@ import {
   Globe
 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
+import { sanitizeInput, encodeOutput } from './utils/security'
+import { 
+  getAccessibilityProps, 
+  ScreenReader, 
+  handleKeyboardNavigation,
+  createSkipLink,
+  LANGUAGE_NAMES 
+} from './utils/accessibility'
 
 // Type declarations for Web Speech API
 declare global {
@@ -73,7 +81,21 @@ function App() {
 
   // Save API keys to localStorage
   const saveApiKey = (name: string, key: string) => {
-    const updatedKeys = { ...apiKeys, [name]: key }
+    // Basic validation for API key name and value
+    if (!name.trim() || !key.trim()) {
+      toast.error('API key name and value are required')
+      return
+    }
+    
+    // Sanitize API key name (not the key itself as it may contain special characters)
+    const sanitizedName = name.trim().replace(/[<>\"'&]/g, '')
+    
+    if (sanitizedName !== name.trim()) {
+      toast.error('API key name contains invalid characters')
+      return
+    }
+    
+    const updatedKeys = { ...apiKeys, [sanitizedName]: key }
     setApiKeys(updatedKeys)
     localStorage.setItem('api_keys', JSON.stringify(updatedKeys))
     setNewApiKey('')
@@ -99,12 +121,24 @@ function App() {
       return
     }
     
-    const translatedText = await translateText(manualText, currentLanguage)
+    // Sanitize input for security
+    const sanitizationResult = sanitizeInput(manualText)
+    
+    if (!sanitizationResult.isValid) {
+      toast.error(`Invalid input: ${sanitizationResult.warnings.join(', ')}`)
+      return
+    }
+    
+    if (sanitizationResult.warnings.length > 0) {
+      toast.warning(`Input warnings: ${sanitizationResult.warnings.join(', ')}`)
+    }
+    
+    const translatedText = await translateText(sanitizationResult.sanitized, currentLanguage)
     
     const newMessage: Message = {
       id: Date.now().toString(),
-      text: manualText,
-      translatedText,
+      text: sanitizationResult.sanitized,
+      translatedText: encodeOutput(translatedText), // Encode output for XSS protection
       isDoctor,
       timestamp: new Date(),
       language: currentLanguage
@@ -112,6 +146,10 @@ function App() {
     
     setMessages(prev => [...prev, newMessage])
     playAudio(translatedText)
+    
+    // Announce translation to screen readers
+    ScreenReader.announceTranslation(manualText, translatedText, currentLanguage)
+    
     setManualText('')
     setShowManualInput(false)
   }
@@ -395,6 +433,9 @@ function App() {
           setIsRecording(true)
           toast.success(`Listening in ${sourceLanguage}... Click mic again to stop!`)
           console.log('Speech recognition started with language:', sourceLanguage)
+          
+          // Announce recording status to screen readers
+          ScreenReader.announceRecordingStatus(true, sourceLanguage)
         }
         
         recognition.onresult = async (event: any) => {
@@ -408,14 +449,26 @@ function App() {
           
           toast.success('Processing audio...')
           
-          // Translate the transcript
-          const translatedText = await translateText(transcript, currentLanguage)
+          // Sanitize speech input for security
+          const sanitizationResult = sanitizeInput(transcript)
+          
+          if (!sanitizationResult.isValid) {
+            toast.error(`Invalid speech input: ${sanitizationResult.warnings.join(', ')}`)
+            return
+          }
+          
+          if (sanitizationResult.warnings.length > 0) {
+            toast.warning(`Speech input warnings: ${sanitizationResult.warnings.join(', ')}`)
+          }
+          
+          // Translate the sanitized transcript
+          const translatedText = await translateText(sanitizationResult.sanitized, currentLanguage)
           
           // Add message to conversation
           const newMessage: Message = {
             id: Date.now().toString(),
-            text: transcript,
-            translatedText,
+            text: sanitizationResult.sanitized,
+            translatedText: encodeOutput(translatedText), // Encode output for XSS protection
             isDoctor,
             timestamp: new Date(),
             language: currentLanguage
@@ -425,6 +478,9 @@ function App() {
           
           // Auto-play the translated text
           playAudio(translatedText)
+          
+          // Announce translation to screen readers
+          ScreenReader.announceTranslation(sanitizationResult.sanitized, translatedText, currentLanguage)
         }
         
         recognition.onerror = (event: any) => {
@@ -448,6 +504,9 @@ function App() {
         recognition.onend = () => {
           setIsRecording(false)
           recognitionRef.current = null
+          
+          // Announce recording stopped to screen readers
+          ScreenReader.announceRecordingStatus(false, sourceLanguage)
         }
         
         recognition.start()
@@ -495,6 +554,9 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden">
+      {/* Skip link for keyboard users */}
+      {createSkipLink('main-content', 'Skip to main content')}
+      
       {/* Gradient Background */}
       <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900"></div>
 
@@ -553,6 +615,8 @@ function App() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setShowSettings(!showSettings)}
+                onKeyDown={(e) => handleKeyboardNavigation(e, () => setShowSettings(!showSettings))}
+                {...getAccessibilityProps('settings', { showSettings })}
                 className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white px-2 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-1 sm:space-x-2"
               >
                 <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -567,7 +631,7 @@ function App() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
           
           {/* Main Translation Interface - Centered */}
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2" id="main-content">
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -580,7 +644,15 @@ function App() {
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={() => setIsDoctor(true)}
+                      onClick={() => {
+                        setIsDoctor(true)
+                        ScreenReader.announceRoleSwitch(true)
+                      }}
+                      onKeyDown={(e) => handleKeyboardNavigation(e, () => {
+                        setIsDoctor(true)
+                        ScreenReader.announceRoleSwitch(true)
+                      })}
+                      {...getAccessibilityProps('role-switch', { isDoctor: true })}
                       className={`flex items-center space-x-2 sm:space-x-3 px-3 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-300 text-sm sm:text-base ${
                         isDoctor 
                           ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg' 
@@ -593,7 +665,15 @@ function App() {
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={() => setIsDoctor(false)}
+                      onClick={() => {
+                        setIsDoctor(false)
+                        ScreenReader.announceRoleSwitch(false)
+                      }}
+                      onKeyDown={(e) => handleKeyboardNavigation(e, () => {
+                        setIsDoctor(false)
+                        ScreenReader.announceRoleSwitch(false)
+                      })}
+                      {...getAccessibilityProps('role-switch', { isDoctor: false })}
                       className={`flex items-center space-x-2 sm:space-x-3 px-3 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-300 text-sm sm:text-base ${
                         !isDoctor 
                           ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg' 
@@ -623,6 +703,8 @@ function App() {
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
                   onClick={startRecording}
+                  onKeyDown={(e) => handleKeyboardNavigation(e, startRecording, ['Enter', ' '])}
+                  {...getAccessibilityProps('microphone', { isRecording })}
                   className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center text-white shadow-2xl transition-all duration-300 ${
                     isRecording 
                       ? 'bg-gradient-to-r from-red-500 to-pink-600 animate-pulse' 
@@ -658,6 +740,8 @@ function App() {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={clearMessages}
+                  onKeyDown={(e) => handleKeyboardNavigation(e, clearMessages)}
+                  {...getAccessibilityProps('clear-conversation')}
                   className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-2 text-sm sm:text-base"
                 >
                   <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -671,10 +755,12 @@ function App() {
               <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 lg:space-x-8 mb-6 sm:mb-8">
                 {/* Source Language */}
                 <div className="text-center w-full sm:w-auto">
-                  <label className="block text-xs sm:text-sm text-white/60 mb-2">Speak in:</label>
+                  <label className="block text-xs sm:text-sm text-white/60 mb-2" id="source-language-label">Speak in:</label>
                   <select
                     value={sourceLanguage}
                     onChange={(e) => setSourceLanguage(e.target.value)}
+                    aria-labelledby="source-language-label"
+                    aria-describedby="source-language-help"
                     className="w-full max-w-[200px] sm:w-auto bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-6 py-2 sm:py-3 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 text-sm sm:text-base"
                   >
                     <option value="en-US" className="bg-gray-800 text-white">English (US)</option>
@@ -690,10 +776,13 @@ function App() {
 
                 {/* Target Language */}
                 <div className="text-center w-full sm:w-auto">
-                  <label className="block text-xs sm:text-sm text-white/60 mb-2">Translate to:</label>
+                  <label className="block text-xs sm:text-sm text-white/60 mb-2" id="target-language-label">Translate to:</label>
                   <select
                     value={currentLanguage}
                     onChange={(e) => setCurrentLanguage(e.target.value)}
+                    aria-labelledby="target-language-label"
+                    aria-describedby="language-help"
+                    {...getAccessibilityProps('language-selector', { currentLanguage })}
                     className="w-full max-w-[200px] sm:w-auto bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-6 py-2 sm:py-3 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 text-sm sm:text-base"
                   >
                     <option value="en" className="bg-gray-800 text-white">English</option>
