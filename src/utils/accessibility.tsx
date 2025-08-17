@@ -1,3 +1,5 @@
+import React from 'react'
+
 // Accessibility utilities for medical translator app
 // Handles ARIA labels, keyboard navigation, and screen reader support
 
@@ -217,12 +219,12 @@ export function focusFirstInteractiveElement(containerRef: React.RefObject<HTMLE
 }
 
 // Skip link for keyboard users
-export function createSkipLink(targetId: string, text: string = 'Skip to main content') {
+export function createSkipLink(targetId: string, text: string = 'Skip to main content'): JSX.Element {
   return (
     <a
       href={`#${targetId}`}
       className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 bg-blue-600 text-white px-4 py-2 rounded z-50"
-      onClick={(e) => {
+      onClick={(e: React.MouseEvent) => {
         e.preventDefault()
         const target = document.getElementById(targetId)
         if (target) {

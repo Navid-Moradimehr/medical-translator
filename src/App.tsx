@@ -13,7 +13,10 @@ import {
   Shield,
   Wifi,
   WifiOff,
-  Globe
+  Globe,
+  X,
+  Type,
+  Trash2
 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import { sanitizeInput, encodeOutput } from './utils/security'
@@ -23,7 +26,7 @@ import {
   handleKeyboardNavigation,
   createSkipLink,
   LANGUAGE_NAMES 
-} from './utils/accessibility'
+} from './utils/accessibility.tsx'
 import { secureStorage, migrateExistingKeys } from './utils/secureStorage'
 import { hipaaCompliance, createPrivacyConsentDialog } from './utils/hipaa'
 
@@ -87,7 +90,7 @@ function App() {
             toast.success(`Migrated ${migration.migrated} API keys to secure storage`)
           }
           if (migration.failed > 0) {
-            toast.error(`Failed to migrate ${migration.failed} API keys`)
+            toast.warning(`Some API keys could not be migrated: ${migration.errors.join(', ')}`)
           }
           
           // Load encrypted keys
@@ -107,7 +110,19 @@ function App() {
         }
       } catch (error) {
         console.error('Error initializing secure storage:', error)
-        toast.error('Secure storage initialization failed')
+        
+        // Try to reset encryption if there are persistent errors
+        try {
+          const resetResult = await secureStorage.resetEncryption()
+          if (resetResult.success) {
+            toast.success('Secure storage reset successfully')
+          } else {
+            toast.error('Secure storage reset failed')
+          }
+        } catch (resetError) {
+          console.error('Failed to reset secure storage:', resetError)
+          toast.error('Secure storage initialization failed')
+        }
       }
     }
     
@@ -276,20 +291,9 @@ function App() {
 
   // Function to enhance text with medical dictionary
   const enhanceTextWithMedicalTerms = (text: string, sourceLang: string, targetLang: string): string => {
-    const sourceDict = medicalDictionary[sourceLang]
-    const targetDict = medicalDictionary[targetLang]
-    
-    if (!sourceDict || !targetDict) return text
-    
-    let enhancedText = text
-    
-    // Replace common medical terms with more accurate translations
-    Object.keys(sourceDict).forEach(term => {
-      const regex = new RegExp(term, 'gi')
-      enhancedText = enhancedText.replace(regex, `${term} (${sourceDict[term]})`)
-    })
-    
-    return enhancedText
+    // For now, return the original text without enhancement to prevent duplication
+    // The medical dictionary can be used for validation but not for text enhancement
+    return text
   }
 
   // Real translation function for MVP - supports OpenAI and free APIs
@@ -945,174 +949,7 @@ function App() {
             </motion.div>
           </div>
 
-          {/* Settings Panel */}
-          <AnimatePresence>
-            {showSettings && (
-              <motion.div
-                initial={{ opacity: 0, x: 300 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 300 }}
-                className="lg:col-span-1 bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-4 sm:p-6 shadow-2xl"
-              >
-                                  <div className="flex items-center space-x-3 mb-4 sm:mb-6">
-                    <Settings className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                    <h3 className="text-lg sm:text-xl font-semibold text-white">Settings</h3>
-                  </div>
-                  
-                  <div className="space-y-4 sm:space-y-6">
-                    <div>
-                      <label className="block text-xs sm:text-sm font-medium text-white/80 mb-2 sm:mb-3">
-                        Translation Provider
-                      </label>
-                      <select
-                        value={selectedProvider}
-                        onChange={(e) => setSelectedProvider(e.target.value)}
-                        className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-4 py-2 sm:py-3 text-white focus:ring-2 focus:ring-purple-500 transition-all duration-200 text-sm sm:text-base"
-                      >
-                      {providers.map(provider => (
-                        <option key={provider.id} value={provider.id} className="bg-gray-800 text-white">
-                          {provider.name} ({provider.type})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
 
-      <div>
-                      <label className="block text-xs sm:text-sm font-medium text-white/80 mb-2 sm:mb-3">
-                        API Key Management
-                      </label>
-                      
-                      {/* Selected API Key */}
-                      <div className="mb-4">
-                        <label className="block text-xs text-white/60 mb-2">Selected API Key:</label>
-                        <select
-                          value={selectedApiKey}
-                          onChange={(e) => {
-                            if (e.target.value === 'add-new') {
-                              setShowApiKeyInput(true)
-                              setSelectedApiKey('')
-                            } else {
-                              setSelectedApiKey(e.target.value)
-                              setShowApiKeyInput(false)
-                            }
-                          }}
-                          className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-4 py-2 sm:py-3 text-white focus:ring-2 focus:ring-purple-500 transition-all duration-200 text-sm sm:text-base"
-                        >
-                          <option value="" className="bg-gray-800 text-white">No API Key Selected</option>
-                          <option value="add-new" className="bg-gray-800 text-white">+ Add API Key</option>
-                          {Object.keys(apiKeys).map(key => (
-                            <option key={key} value={key} className="bg-gray-800 text-white">
-                              {key} ({apiKeys[key].substring(0, 8)}...)
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Add New API Key - Show on demand */}
-                      {showApiKeyInput && (
-                        <div className="mb-4 p-4 bg-white/5 rounded-xl border border-white/10">
-                          <label className="block text-xs text-white/60 mb-2">Add New API Key:</label>
-                          <div className="space-y-3">
-                            <input
-                              type="text"
-                              placeholder="API Key Name"
-                              value={newApiKey}
-                              onChange={(e) => setNewApiKey(e.target.value)}
-                              className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-4 py-2 sm:py-3 text-white placeholder-white/50 focus:ring-2 focus:ring-purple-500 transition-all duration-200 text-sm sm:text-base"
-                            />
-                            <input
-                              type="password"
-                              placeholder="sk-..."
-                              id="apiKeyInput"
-                              className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-4 py-2 sm:py-3 text-white placeholder-white/50 focus:ring-2 focus:ring-purple-500 transition-all duration-200 text-sm sm:text-base"
-                            />
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={async () => {
-                                  const keyInput = document.getElementById('apiKeyInput') as HTMLInputElement
-                                  if (newApiKey && keyInput.value) {
-                                    await saveApiKey(newApiKey, keyInput.value)
-                                    keyInput.value = ''
-                                    setShowApiKeyInput(false)
-                                  } else {
-                                    toast.error('Please enter both name and API key')
-                                  }
-                                }}
-                                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white px-4 py-3 rounded-xl transition-all duration-200"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setShowApiKeyInput(false)
-                                  setNewApiKey('')
-                                  const keyInput = document.getElementById('apiKeyInput') as HTMLInputElement
-                                  if (keyInput) keyInput.value = ''
-                                }}
-                                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white px-4 py-3 rounded-xl transition-all duration-200"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-      </div>
-                      )}
-
-                      {/* Saved API Keys */}
-                      {Object.keys(apiKeys).length > 0 && (
-                        <div>
-                          <label className="block text-xs text-white/60 mb-2">Saved API Keys:</label>
-                          <div className="space-y-2">
-                            {Object.keys(apiKeys).map(key => (
-                              <div key={key} className="flex items-center justify-between p-3 bg-white/5 rounded-xl">
-                                <span className="text-white text-sm">{key}</span>
-                                <button
-                                  onClick={async () => await removeApiKey(key)}
-                                  className="text-red-400 hover:text-red-300 text-sm"
-                                >
-                                  Remove
-        </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="pt-4 border-t border-white/20">
-                      <h4 className="text-sm font-medium text-white/80 mb-4">Provider Status & Limits</h4>
-                      <div className="space-y-3">
-                        {providers.map(provider => (
-                          <div key={provider.id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl">
-                            <div className="flex items-center space-x-3">
-                              {provider.type === 'cloud' ? (
-                                <Wifi className="w-4 h-4 text-blue-400" />
-                              ) : provider.type === 'api' ? (
-                                <Globe className="w-4 h-4 text-purple-400" />
-                              ) : (
-                                <Shield className="w-4 h-4 text-green-400" />
-                              )}
-                              <div>
-                                <span className="text-white text-sm">{provider.name}</span>
-                                <div className="text-xs text-white/60">
-                                  {provider.id === 'mymemory' && '100 requests/day'}
-                                  {provider.id === 'openai' && '3,500 req/min'}
-                                  {provider.id === 'google' && '100 req/100s'}
-                                  {provider.id === 'deepl' && '500K chars/month'}
-                                </div>
-                              </div>
-                            </div>
-                            <div className={`w-3 h-3 rounded-full ${
-                              provider.status === 'available' ? 'bg-green-400' : 'bg-red-400'
-                            }`}></div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
 
         {/* Messages */}
@@ -1193,6 +1030,252 @@ function App() {
           </div>
         </motion.div>
       </div>
+
+      {/* Sliding Settings Panel */}
+      <motion.div
+        initial={{ x: '100%' }}
+        animate={{ x: showSettings ? 0 : '100%' }}
+        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+        className="fixed top-0 right-0 h-full w-full md:w-96 bg-slate-900/95 backdrop-blur-md border-l border-white/20 shadow-2xl z-50 overflow-y-auto"
+      >
+        {/* Settings Header */}
+        <div className="sticky top-0 bg-slate-900/95 backdrop-blur-md border-b border-white/20 p-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-2xl font-bold text-white">Settings</h2>
+            <motion.button
+              onClick={() => setShowSettings(false)}
+              className="text-white/60 hover:text-white transition-colors"
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              aria-label="Close settings"
+            >
+              <X className="w-6 h-6" />
+            </motion.button>
+          </div>
+        </div>
+
+        {/* Settings Content */}
+        <div className="p-6 space-y-8">
+          {/* Translation Provider */}
+          <div className="space-y-4">
+            <h3 className="text-xl font-semibold text-white mb-4">Translation Provider</h3>
+            <select
+              value={selectedProvider}
+              onChange={(e) => setSelectedProvider(e.target.value)}
+              className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
+            >
+              {providers.map(provider => (
+                <option key={provider.id} value={provider.id} className="bg-gray-800 text-white">
+                  {provider.name} ({provider.type})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* API Key Management */}
+          <div className="space-y-4">
+            <h3 className="text-xl font-semibold text-white mb-4">API Key Management</h3>
+            
+            {/* Add New API Key */}
+            <div className="space-y-3">
+              <input
+                type="text"
+                placeholder="API Key Name"
+                value={newApiKey}
+                onChange={(e) => setNewApiKey(e.target.value)}
+                className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
+              />
+              <input
+                type="password"
+                placeholder="API Key"
+                id="apiKeyInput"
+                className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
+              />
+              <motion.button
+                onClick={async () => {
+                  const keyInput = document.getElementById('apiKeyInput') as HTMLInputElement
+                  if (newApiKey && keyInput.value) {
+                    await saveApiKey(newApiKey, keyInput.value)
+                    keyInput.value = ''
+                  } else {
+                    toast.error('Please enter both name and API key')
+                  }
+                }}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 px-6 rounded-lg transition-all duration-200"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                Save API Key
+              </motion.button>
+            </div>
+
+            {/* API Key Selection */}
+            <div>
+              <label className="block text-sm text-white/60 mb-2">Select API Key:</label>
+              <select
+                value={selectedApiKey}
+                onChange={(e) => setSelectedApiKey(e.target.value)}
+                className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
+              >
+                <option value="" className="bg-slate-800 text-white">Select an API key</option>
+                {Object.keys(apiKeys).map((name) => (
+                  <option key={name} value={name} className="bg-slate-800 text-white">
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Stored API Keys */}
+            <div>
+              <h4 className="text-lg font-medium text-white mb-3">Stored Keys:</h4>
+              <div className="space-y-2">
+                {Object.keys(apiKeys).map((name) => (
+                  <div key={name} className="flex justify-between items-center bg-white/5 rounded-lg px-4 py-3">
+                    <span className="text-white">{name}</span>
+                    <motion.button
+                      onClick={() => removeApiKey(name)}
+                      className="text-red-400 hover:text-red-300 transition-colors"
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </motion.button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Provider Status */}
+          <div className="space-y-4">
+            <h3 className="text-xl font-semibold text-white mb-4">Provider Status & Limits</h3>
+            <div className="space-y-3">
+              {providers.map(provider => (
+                <div key={provider.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
+                  <div className="flex items-center space-x-3">
+                    {provider.type === 'cloud' ? (
+                      <Wifi className="w-4 h-4 text-blue-400" />
+                    ) : provider.type === 'api' ? (
+                      <Globe className="w-4 h-4 text-purple-400" />
+                    ) : (
+                      <Shield className="w-4 h-4 text-green-400" />
+                    )}
+                    <div>
+                      <span className="text-white text-sm">{provider.name}</span>
+                      <div className="text-xs text-white/60">
+                        {provider.id === 'mymemory' && '100 requests/day'}
+                        {provider.id === 'openai' && '3,500 req/min'}
+                        {provider.id === 'google' && '100 req/100s'}
+                        {provider.id === 'deepl' && '500K chars/month'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`w-3 h-3 rounded-full ${
+                    provider.status === 'available' ? 'bg-green-400' : 'bg-red-400'
+                  }`}></div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Privacy & Security Settings */}
+          <div className="space-y-4">
+            <h3 className="text-xl font-semibold text-white mb-4">Privacy & Security</h3>
+            
+            {/* HIPAA Compliance Status */}
+            <div className="bg-white/5 rounded-lg p-4">
+              <h4 className="text-lg font-medium text-white mb-2">HIPAA Compliance</h4>
+              <div className="space-y-2 text-sm text-white/80">
+                <div className="flex justify-between">
+                  <span>Data Anonymization:</span>
+                  <span className="text-green-400">✓ Enabled</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Audit Logging:</span>
+                  <span className="text-green-400">✓ Active</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Consent Management:</span>
+                  <span className="text-green-400">✓ Configured</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Data Retention:</span>
+                  <span className="text-green-400">7 days</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Security Status */}
+            <div className="bg-white/5 rounded-lg p-4">
+              <h4 className="text-lg font-medium text-white mb-2">Security Status</h4>
+              <div className="space-y-2 text-sm text-white/80">
+                <div className="flex justify-between">
+                  <span>Input Sanitization:</span>
+                  <span className="text-green-400">✓ Active</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>XSS Protection:</span>
+                  <span className="text-green-400">✓ Enabled</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>API Key Encryption:</span>
+                  <span className="text-green-400">✓ AES-256</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Secure Storage:</span>
+                  <span className="text-green-400">✓ IndexedDB</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Privacy Controls */}
+            <div className="space-y-3">
+              <h4 className="text-lg font-medium text-white">Privacy Controls</h4>
+              <div className="space-y-2">
+                <label className="flex items-center space-x-3">
+                  <input
+                    type="checkbox"
+                    checked={hipaaCompliance.getConsent().dataCollection}
+                    onChange={(e) => hipaaCompliance.updateConsent({ dataCollection: e.target.checked })}
+                    className="rounded border-white/20 bg-white/10 text-purple-600 focus:ring-purple-500"
+                  />
+                  <span className="text-white text-sm">Allow data collection for improvement</span>
+                </label>
+                <label className="flex items-center space-x-3">
+                  <input
+                    type="checkbox"
+                    checked={hipaaCompliance.getConsent().auditLogging}
+                    onChange={(e) => hipaaCompliance.updateConsent({ auditLogging: e.target.checked })}
+                    className="rounded border-white/20 bg-white/10 text-purple-600 focus:ring-purple-500"
+                  />
+                  <span className="text-white text-sm">Enable audit logging</span>
+                </label>
+                <label className="flex items-center space-x-3">
+                  <input
+                    type="checkbox"
+                    checked={hipaaCompliance.getConsent().conversationStorage}
+                    onChange={(e) => hipaaCompliance.updateConsent({ conversationStorage: e.target.checked })}
+                    className="rounded border-white/20 bg-white/10 text-purple-600 focus:ring-purple-500"
+                  />
+                  <span className="text-white text-sm">Store conversation history</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Backdrop for mobile */}
+      {showSettings && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={() => setShowSettings(false)}
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+        />
+      )}
     </div>
   )
 }

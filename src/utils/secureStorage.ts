@@ -251,7 +251,15 @@ class SecureStorage {
         return null
       }
       
-      return await this.decrypt(encryptedData)
+      // Try to decrypt with current key
+      try {
+        return await this.decrypt(encryptedData)
+      } catch (decryptError) {
+        console.warn(`Failed to decrypt API key ${name}, removing corrupted data`)
+        // Remove corrupted data
+        localStorage.removeItem(storageKey)
+        return null
+      }
     } catch (error) {
       console.error('Failed to retrieve API key:', error)
       return null
@@ -309,6 +317,28 @@ class SecureStorage {
     }
   }
 
+  // Clear corrupted data and reset encryption
+  async resetEncryption(): Promise<StorageResult> {
+    try {
+      // Clear all encrypted data
+      await this.clearAll()
+      
+      // Reset encryption key
+      this.encryptionKey = null
+      
+      // Reinitialize with new key
+      const initialized = await this.initialize()
+      
+      return { 
+        success: initialized, 
+        error: initialized ? undefined : 'Failed to reinitialize encryption'
+      }
+    } catch (error) {
+      console.error('Failed to reset encryption:', error)
+      return { success: false, error: 'Failed to reset encryption' }
+    }
+  }
+
   // Check if secure storage is available
   static isSupported(): boolean {
     return 'crypto' in window && 
@@ -349,26 +379,49 @@ export async function migrateExistingKeys(): Promise<{
     // Check for existing unencrypted API keys
     const existingKeys = localStorage.getItem('api_keys')
     if (existingKeys) {
-      const keys = JSON.parse(existingKeys)
-      
-      for (const [name, key] of Object.entries(keys)) {
-        try {
-          const success = await secureStorage.storeApiKey(name, key as string)
-          if (success.success) {
-            result.migrated++
-          } else {
+      try {
+        const keys = JSON.parse(existingKeys)
+        
+        for (const [name, key] of Object.entries(keys)) {
+          try {
+            const success = await secureStorage.storeApiKey(name, key as string)
+            if (success.success) {
+              result.migrated++
+            } else {
+              result.failed++
+              result.errors.push(`Failed to migrate ${name}: ${success.error}`)
+            }
+          } catch (error) {
             result.failed++
-            result.errors.push(`Failed to migrate ${name}: ${success.error}`)
+            result.errors.push(`Error migrating ${name}: ${error}`)
           }
-        } catch (error) {
-          result.failed++
-          result.errors.push(`Error migrating ${name}: ${error}`)
         }
-      }
-      
-      // Remove old unencrypted keys after successful migration
-      if (result.migrated > 0) {
+        
+        // Remove old unencrypted keys after successful migration
+        if (result.migrated > 0) {
+          localStorage.removeItem('api_keys')
+        }
+      } catch (parseError) {
+        // If JSON parsing fails, remove corrupted data
+        console.warn('Corrupted api_keys data found, removing')
         localStorage.removeItem('api_keys')
+        result.errors.push('Corrupted existing API keys data removed')
+      }
+    }
+    
+    // Also clean up any corrupted encrypted keys
+    const allKeys = Object.keys(localStorage)
+    const encryptedKeys = allKeys.filter(key => key.startsWith('encrypted_'))
+    
+    for (const key of encryptedKeys) {
+      try {
+        const name = key.replace('encrypted_', '')
+        await secureStorage.getApiKey(name)
+      } catch (error) {
+        // Remove corrupted encrypted key
+        console.warn(`Removing corrupted encrypted key: ${key}`)
+        localStorage.removeItem(key)
+        result.errors.push(`Removed corrupted key: ${name}`)
       }
     }
   } catch (error) {
