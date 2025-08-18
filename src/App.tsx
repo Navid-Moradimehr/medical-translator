@@ -168,6 +168,7 @@ function App() {
           
           // Load encrypted keys
           const keyNames = await secureStorage.listApiKeys()
+          console.log('🔑 Found stored API keys:', keyNames)
           const loadedKeys: Record<string, string> = {}
           const loadedKeyNames: Record<string, string[]> = {}
           
@@ -175,16 +176,20 @@ function App() {
             const key = await secureStorage.getApiKey(name)
             if (key) {
               loadedKeys[name] = key
-              // For now, we'll assume all keys are for the current provider
-              // In a more sophisticated system, you might store provider info with each key
-              const currentProvider = selectedProvider
-              if (!loadedKeyNames[currentProvider]) {
-                loadedKeyNames[currentProvider] = []
+              // Try to get provider info from the key name or assume it's for the current provider
+              // Key names should be in format: "provider_name" or just "name"
+              const keyParts = name.split('_')
+              const provider = keyParts.length > 1 ? keyParts[0] : selectedProvider
+              
+              if (!loadedKeyNames[provider]) {
+                loadedKeyNames[provider] = []
               }
-              loadedKeyNames[currentProvider].push(name)
+              loadedKeyNames[provider].push(name)
             }
           }
           
+          console.log('🔑 Loaded API keys:', loadedKeys)
+          console.log('🔑 Loaded API key names by provider:', loadedKeyNames)
           setApiKeys(loadedKeys)
           setApiKeyNames(loadedKeyNames)
         } else {
@@ -1476,17 +1481,21 @@ Return a comprehensive JSON object with all medical information intelligently ca
   // Save API key to secure storage
   const saveApiKeyToStorage = async (name: string, key: string) => {
     try {
-      const result = await secureStorage.storeApiKey(name, key)
+      // Create a provider-aware key name
+      const providerKeyName = `${selectedProvider}_${name}`
+      console.log('🔑 Saving API key:', { provider: selectedProvider, name, providerKeyName })
+      
+      const result = await secureStorage.storeApiKey(providerKeyName, key)
       if (result.success) {
-        setApiKeys(prev => ({ ...prev, [name]: key }))
+        setApiKeys(prev => ({ ...prev, [providerKeyName]: key }))
         setApiKeyNames(prev => ({
           ...prev,
-          [selectedProvider]: [...(prev[selectedProvider] || []), name]
+          [selectedProvider]: [...(prev[selectedProvider] || []), providerKeyName]
         }))
         setNewApiKey('')
         setNewApiKeyName('')
         setShowApiKeyInput(false)
-        setSelectedApiKey(name)
+        setSelectedApiKey(providerKeyName)
         toast.success('API key saved successfully')
       } else {
         toast.error(`Failed to save API key: ${result.error}`)
