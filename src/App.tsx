@@ -98,6 +98,8 @@ function App() {
   const [medicalExtraction, setMedicalExtraction] = useState<MedicalExtraction | null>(null)
   const [showMedicalSummary, setShowMedicalSummary] = useState(false)
   const [aiStatus, setAiStatus] = useState<'active' | 'inactive' | 'checking'>('checking')
+  const [aiMode, setAiMode] = useState<'basic' | 'ai'>('basic')
+  const [activeModel, setActiveModel] = useState<string>('')
   
   // Real-time conversation summary state
   const [conversationSummary, setConversationSummary] = useState<{
@@ -185,6 +187,30 @@ function App() {
     loadSavedCases()
   }, [])
 
+  // Initialize AI mode when API keys are loaded
+  useEffect(() => {
+    if (Object.keys(apiKeyNames).length > 0) {
+      const availableProviders = checkApiKeyAvailability()
+      if (availableProviders.length > 0) {
+        // Auto-enable AI mode if API keys are available
+        const hasApiKey = autoSelectApiKey()
+        if (hasApiKey) {
+          setAiMode('ai')
+          setAiStatus('active')
+          console.log('🤖 Auto-enabled AI mode with available API key')
+        } else {
+          setAiMode('basic')
+          setAiStatus('inactive')
+          console.log('🔧 No valid API keys found, staying in basic mode')
+        }
+      } else {
+        setAiMode('basic')
+        setAiStatus('inactive')
+        console.log('🔧 No API keys available, staying in basic mode')
+      }
+    }
+  }, [apiKeyNames])
+
   // Function to refresh saved cases from localStorage
   const refreshSavedCases = () => {
     try {
@@ -206,22 +232,53 @@ function App() {
     }
   }
 
-  // Test function to check localStorage
-  const testLocalStorage = () => {
-    console.log('🧪 Testing localStorage...')
-    const allKeys = Object.keys(localStorage)
-    console.log('🧪 All localStorage keys:', allKeys)
-    
-    const savedCasesKey = localStorage.getItem('medical_translator_saved_cases')
-    console.log('🧪 Saved cases key value:', savedCasesKey)
-    
-    if (savedCasesKey) {
-      try {
-        const parsed = JSON.parse(savedCasesKey)
-        console.log('🧪 Parsed saved cases:', parsed)
-      } catch (error) {
-        console.error('🧪 Error parsing saved cases:', error)
+
+
+  // Function to check if any API key is available
+  const checkApiKeyAvailability = () => {
+    const availableProviders = Object.keys(apiKeyNames).filter(provider => 
+      apiKeyNames[provider] && apiKeyNames[provider].length > 0
+    )
+    return availableProviders
+  }
+
+  // Function to automatically select the best available API key
+  const autoSelectApiKey = () => {
+    const availableProviders = checkApiKeyAvailability()
+    if (availableProviders.length > 0) {
+      // Prefer OpenAI, then Google, then others
+      const preferredOrder = ['openai', 'google', 'deepl', 'mymemory']
+      const bestProvider = preferredOrder.find(provider => availableProviders.includes(provider)) || availableProviders[0]
+      
+      setSelectedProvider(bestProvider)
+      const firstKeyName = apiKeyNames[bestProvider][0]
+      setSelectedApiKey(firstKeyName)
+      setActiveModel(`${bestProvider.toUpperCase()} (${firstKeyName})`)
+      
+      console.log(`🤖 Auto-selected API key: ${bestProvider} - ${firstKeyName}`)
+      return true
+    }
+    return false
+  }
+
+  // Function to toggle AI mode
+  const toggleAiMode = () => {
+    if (aiMode === 'basic') {
+      // Switching to AI mode
+      const hasApiKey = autoSelectApiKey()
+      if (hasApiKey) {
+        setAiMode('ai')
+        setAiStatus('active')
+        toast.success(`Switched to AI Mode - ${activeModel}`)
+      } else {
+        toast.error('No API keys available. Please add an API key in settings.')
       }
+    } else {
+      // Switching to basic mode
+      setAiMode('basic')
+      setAiStatus('inactive')
+      setActiveModel('')
+      toast.success('Switched to Basic Mode')
     }
   }
 
@@ -1799,19 +1856,55 @@ Return a comprehensive JSON object with all medical information intelligently ca
             </motion.div>
             
             <div className="flex items-center justify-center sm:justify-end space-x-2 sm:space-x-4">
-              {/* AI Status Indicator */}
-              <div className="flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-3 sm:px-4 py-2">
-                <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full ${
-                  aiStatus === 'active' ? 'bg-green-400 animate-pulse' :
-                  aiStatus === 'inactive' ? 'bg-gray-400' : 'bg-yellow-400 animate-pulse'
-                }`}></div>
-                <span className={`text-white text-xs sm:text-sm font-medium ${
-                  aiStatus === 'active' ? 'text-green-400' :
-                  aiStatus === 'inactive' ? 'text-gray-400' : 'text-yellow-400'
-                }`}>
-                  {aiStatus === 'active' ? 'AI Active' :
-                   aiStatus === 'inactive' ? 'Basic Mode' : 'Checking...'}
-                </span>
+              {/* AI Mode Toggle and Status */}
+              <div className="flex items-center space-x-2">
+                {/* AI Status Indicator */}
+                <div className="flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-3 sm:px-4 py-2">
+                  <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full ${
+                    aiStatus === 'active' ? 'bg-green-400 animate-pulse' :
+                    aiStatus === 'inactive' ? 'bg-gray-400' : 'bg-yellow-400 animate-pulse'
+                  }`}></div>
+                  <span className={`text-white text-xs sm:text-sm font-medium ${
+                    aiStatus === 'active' ? 'text-green-400' :
+                    aiStatus === 'inactive' ? 'text-gray-400' : 'text-yellow-400'
+                  }`}>
+                    {aiMode === 'ai' ? 'AI Mode' : 'Basic Mode'}
+                  </span>
+                </div>
+
+                {/* AI Mode Toggle Button */}
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={toggleAiMode}
+                  className={`px-3 py-2 rounded-full text-xs sm:text-sm font-medium transition-all duration-200 ${
+                    aiMode === 'ai' 
+                      ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg' 
+                      : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
+                  }`}
+                >
+                  {aiMode === 'ai' ? '🤖 AI' : '🔧 Basic'}
+                </motion.button>
+
+                {/* Active Model Display */}
+                {aiMode === 'ai' && activeModel && (
+                  <>
+                    {/* Desktop version */}
+                    <div className="hidden sm:flex items-center space-x-2 bg-green-500/20 backdrop-blur-sm rounded-full px-3 py-2 border border-green-500/30">
+                      <Sparkles className="w-3 h-3 text-green-400" />
+                      <span className="text-green-400 text-xs font-medium">
+                        {activeModel}
+                      </span>
+                    </div>
+                    {/* Mobile version */}
+                    <div className="sm:hidden flex items-center space-x-1 bg-green-500/20 backdrop-blur-sm rounded-full px-2 py-1 border border-green-500/30">
+                      <Sparkles className="w-2 h-2 text-green-400" />
+                      <span className="text-green-400 text-xs font-medium">
+                        {activeModel.split(' ')[0]}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
               
               <div className="flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-3 sm:px-4 py-2">
@@ -1910,18 +2003,18 @@ Return a comprehensive JSON object with all medical information intelligently ca
               <span>Delete Cases</span>
             </motion.button>
 
-            {/* Debug Option */}
+            {/* New Case Option */}
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => {
-                testLocalStorage()
-                refreshSavedCases()
-                setShowHamburgerMenu(false)
+                if (window.confirm('Start a new case? This will clear the current conversation.')) {
+                  clearConversation()
+                }
               }}
-              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-yellow-500/20 hover:bg-yellow-500/30 transition-all duration-200 text-yellow-300"
+              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 transition-all duration-200 text-blue-300"
             >
-              <span>🔧 Debug Storage</span>
+              <span>🆕 New Case</span>
             </motion.button>
           </div>
         </motion.div>
