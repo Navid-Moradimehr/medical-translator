@@ -84,42 +84,19 @@ class SecureStorage {
   // Store encryption key securely
   private async storeKey(keyData: ArrayBuffer): Promise<void> {
     try {
-      // Store in IndexedDB for better security than localStorage
-      const db = await this.openIndexedDB()
-      const transaction = db.transaction(['keys'], 'readwrite')
-      const store = transaction.objectStore('keys')
-      
-      await store.put({
-        name: this.KEY_NAME,
-        data: Array.from(new Uint8Array(keyData)),
-        timestamp: Date.now()
-      })
-    } catch (error) {
-      console.error('Failed to store encryption key:', error)
-      // Fallback to localStorage (less secure but functional)
+      // Use localStorage for encryption key storage (simpler and more reliable)
       const keyString = btoa(String.fromCharCode(...new Uint8Array(keyData)))
       localStorage.setItem(this.KEY_NAME, keyString)
+    } catch (error) {
+      console.error('Failed to store encryption key:', error)
+      throw error
     }
   }
 
   // Get encryption key from storage
   private async getKeyFromStorage(): Promise<ArrayBuffer | null> {
     try {
-      // Try IndexedDB first
-      const db = await this.openIndexedDB()
-      const transaction = db.transaction(['keys'], 'readonly')
-      const store = transaction.objectStore('keys')
-      const result = await store.get(this.KEY_NAME)
-      
-      if (result && this.isKeyValid(result.timestamp)) {
-        return new Uint8Array(result.data).buffer
-      }
-    } catch (error) {
-      console.warn('IndexedDB not available, trying localStorage fallback')
-    }
-    
-    // Fallback to localStorage
-    try {
+      // Use localStorage for encryption key storage
       const keyString = localStorage.getItem(this.KEY_NAME)
       if (keyString) {
         const keyData = Uint8Array.from(atob(keyString), c => c.charCodeAt(0))
@@ -162,6 +139,7 @@ class SecureStorage {
     }
 
     try {
+      console.log('🔐 Encrypting data...')
       const encoder = new TextEncoder()
       const encoded = encoder.encode(data)
       const iv = crypto.getRandomValues(new Uint8Array(12))
@@ -173,13 +151,15 @@ class SecureStorage {
       )
       
       const encryptedData: EncryptedData = {
-        data: Array.from(new Uint8Array(encrypted)),
-        iv: Array.from(iv),
+        data: btoa(String.fromCharCode(...new Uint8Array(encrypted))),
+        iv: btoa(String.fromCharCode(...iv)),
         timestamp: Date.now(),
         version: this.VERSION
       }
       
-      return btoa(JSON.stringify(encryptedData))
+      const result = btoa(JSON.stringify(encryptedData))
+      console.log('🔐 Encryption successful')
+      return result
     } catch (error) {
       console.error('Encryption failed:', error)
       throw new Error('Failed to encrypt data')
@@ -193,6 +173,7 @@ class SecureStorage {
     }
 
     try {
+      console.log('🔓 Decrypting data...')
       const encryptedData: EncryptedData = JSON.parse(atob(encryptedString))
       
       // Version check
@@ -201,12 +182,14 @@ class SecureStorage {
       }
       
       const decrypted = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: new Uint8Array(encryptedData.iv) },
+        { name: 'AES-GCM', iv: new Uint8Array(atob(encryptedData.iv), c => c.charCodeAt(0)) },
         this.encryptionKey,
-        new Uint8Array(encryptedData.data)
+        new Uint8Array(atob(encryptedData.data), c => c.charCodeAt(0))
       )
       
-      return new TextDecoder().decode(decrypted)
+      const result = new TextDecoder().decode(decrypted)
+      console.log('🔓 Decryption successful')
+      return result
     } catch (error) {
       console.error('Decryption failed:', error)
       throw new Error('Failed to decrypt data')
