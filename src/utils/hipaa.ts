@@ -9,6 +9,11 @@ export interface AuditLogEntry {
   sessionId: string
   ipAddress?: string
   userAgent?: string
+  dataType?: 'conversation' | 'summary' | 'extraction' | 'api_key' | 'settings'
+  severity?: 'low' | 'medium' | 'high' | 'critical'
+  details?: any
+  success: boolean
+  errorMessage?: string
 }
 
 export interface AnonymizedData {
@@ -31,6 +36,9 @@ export interface PrivacySettings {
   autoDelete: boolean
   anonymizePII: boolean
   auditLogging: boolean
+  breachDetection: boolean
+  encryptionEnabled: boolean
+  accessMonitoring: boolean
 }
 
 class HIPAACompliance {
@@ -56,7 +64,10 @@ class HIPAACompliance {
       maxRetentionDays: this.DEFAULT_RETENTION_DAYS,
       autoDelete: true,
       anonymizePII: true,
-      auditLogging: true
+      auditLogging: true,
+      breachDetection: true,
+      encryptionEnabled: true,
+      accessMonitoring: true
     }
 
     try {
@@ -160,7 +171,13 @@ class HIPAACompliance {
   }
 
   // Log audit entry
-  logAuditEntry(action: string, data?: any): void {
+  logAuditEntry(action: string, data?: any, options?: {
+    dataType?: 'conversation' | 'summary' | 'extraction' | 'api_key' | 'settings'
+    severity?: 'low' | 'medium' | 'high' | 'critical'
+    details?: any
+    success?: boolean
+    errorMessage?: string
+  }): void {
     if (!this.hasConsent('auditLogging')) {
       return
     }
@@ -172,7 +189,12 @@ class HIPAACompliance {
         action,
         dataHash: data ? this.hashData(data) : '',
         sessionId: this.generateSessionId(),
-        userAgent: navigator.userAgent
+        userAgent: navigator.userAgent,
+        dataType: options?.dataType,
+        severity: options?.severity || 'low',
+        details: options?.details,
+        success: options?.success !== false,
+        errorMessage: options?.errorMessage
       }
 
       // Get existing audit log
@@ -186,6 +208,9 @@ class HIPAACompliance {
 
       // Store updated audit log
       localStorage.setItem(this.AUDIT_LOG_KEY, JSON.stringify(existingLog))
+
+      // Check for potential security breaches
+      this.detectSecurityBreaches(auditEntry)
     } catch (error) {
       console.error('Failed to log audit entry:', error)
     }
@@ -401,24 +426,129 @@ class HIPAACompliance {
     return `PDF export not implemented. Use JSON or CSV format.\nData: ${JSON.stringify(data, null, 2)}`
   }
 
+  // Detect security breaches
+  private detectSecurityBreaches(entry: AuditLogEntry): void {
+    const settings = this.getPrivacySettings()
+    if (!settings.breachDetection) return
+
+    const auditLog = this.getAuditLog()
+    const recentEntries = auditLog.filter(e => 
+      new Date(e.timestamp).getTime() > Date.now() - (60 * 60 * 1000) // Last hour
+    )
+
+    // Check for multiple failed attempts
+    const failedAttempts = recentEntries.filter(e => !e.success).length
+    if (failedAttempts > 5) {
+      this.handleSecurityBreach('multiple_failed_attempts', {
+        failedAttempts,
+        timeWindow: '1 hour'
+      })
+    }
+
+    // Check for unusual access patterns
+    const accessCount = recentEntries.filter(e => 
+      e.action.includes('access') || e.action.includes('view')
+    ).length
+    if (accessCount > 50) {
+      this.handleSecurityBreach('unusual_access_pattern', {
+        accessCount,
+        timeWindow: '1 hour'
+      })
+    }
+
+    // Check for critical actions
+    if (entry.severity === 'critical') {
+      this.handleSecurityBreach('critical_action_detected', {
+        action: entry.action,
+        details: entry.details
+      })
+    }
+  }
+
+  // Handle security breach
+  private handleSecurityBreach(type: string, details: any): void {
+    console.warn(`🚨 Security breach detected: ${type}`, details)
+    
+    // Log the breach
+    this.logAuditEntry('security_breach_detected', details, {
+      severity: 'critical',
+      details: { type, ...details }
+    })
+
+    // Store breach information
+    const breaches = this.getSecurityBreaches()
+    breaches.push({
+      type,
+      timestamp: new Date().toISOString(),
+      details,
+      resolved: false
+    })
+    localStorage.setItem('medical_translator_security_breaches', JSON.stringify(breaches))
+
+    // Trigger breach response
+    this.triggerBreachResponse(type, details)
+  }
+
+  // Get security breaches
+  getSecurityBreaches(): Array<{
+    type: string
+    timestamp: string
+    details: any
+    resolved: boolean
+  }> {
+    try {
+      const stored = localStorage.getItem('medical_translator_security_breaches')
+      return stored ? JSON.parse(stored) : []
+    } catch (error) {
+      console.error('Error loading security breaches:', error)
+      return []
+    }
+  }
+
+  // Trigger breach response
+  private triggerBreachResponse(type: string, details: any): void {
+    // For now, just log the breach
+    // In a production environment, this would trigger:
+    // - Email notifications
+    // - Account lockout
+    // - Data encryption
+    // - Incident response procedures
+    
+    console.error(`🚨 SECURITY BREACH: ${type}`, details)
+    
+    // Could trigger UI notifications here
+    if (typeof window !== 'undefined' && window.dispatchEvent) {
+      window.dispatchEvent(new CustomEvent('securityBreach', {
+        detail: { type, details }
+      }))
+    }
+  }
+
   // Get compliance status
   getComplianceStatus(): {
     consentGiven: boolean
     auditLogging: boolean
     dataRetention: boolean
     piiProtection: boolean
+    encryptionEnabled: boolean
+    breachDetection: boolean
     lastAudit: string | null
+    securityBreaches: number
   } {
     const consent = this.getConsent()
     const privacy = this.getPrivacySettings()
     const auditLog = this.getAuditLog()
+    const breaches = this.getSecurityBreaches()
 
     return {
       consentGiven: Object.values(consent).some(Boolean),
       auditLogging: privacy.auditLogging && consent.auditLogging,
       dataRetention: privacy.autoDelete,
       piiProtection: privacy.anonymizePII,
-      lastAudit: auditLog.length > 0 ? auditLog[auditLog.length - 1].timestamp : null
+      encryptionEnabled: privacy.encryptionEnabled,
+      breachDetection: privacy.breachDetection,
+      lastAudit: auditLog.length > 0 ? auditLog[auditLog.length - 1].timestamp : null,
+      securityBreaches: breaches.filter(b => !b.resolved).length
     }
   }
 }

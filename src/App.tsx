@@ -35,6 +35,7 @@ import {
 import { secureStorage, migrateExistingKeys } from './utils/secureStorage'
 import { hipaaCompliance, createPrivacyConsentDialog } from './utils/hipaa'
 import MedicalExtractionService, { type MedicalExtraction } from './utils/medicalExtraction'
+import { medicalEncryption } from './utils/medicalEncryption'
 
 // Type declarations for Web Speech API
 declare global {
@@ -132,6 +133,8 @@ function App() {
     messages: Message[]
     medicalExtraction: MedicalExtraction | null
     conversationSummary: any
+    encrypted?: boolean
+    encryptedData?: string
   }>>([])
 
   // Simple language switching: just swap the languages when role changes
@@ -301,7 +304,7 @@ function App() {
   }, [savedCases])
 
   // Save current conversation and medical data
-  const saveCurrentCase = (fileName: string, overwriteId?: string) => {
+  const saveCurrentCase = async (fileName: string, overwriteId?: string) => {
     const caseData = {
       id: overwriteId || `case_${Date.now()}`,
       name: fileName,
@@ -313,51 +316,115 @@ function App() {
 
     console.log('💾 Saving case:', caseData)
 
-    if (overwriteId) {
-      // Update existing case
-      setSavedCases(prev => {
-        const updated = prev.map(case_ => 
-          case_.id === overwriteId ? caseData : case_
-        )
-        console.log('📝 Updated cases:', updated)
-        return updated
+    try {
+      // Encrypt medical data before saving
+      const encryptionResult = await medicalEncryption.encryptMedicalData(caseData, 'conversation')
+      if (!encryptionResult.success) {
+        console.error('Failed to encrypt case data:', encryptionResult.error)
+        toast.error('Failed to encrypt case data')
+        return
+      }
+
+      // Create encrypted case data
+      const encryptedCaseData = {
+        ...caseData,
+        encrypted: true,
+        encryptedData: encryptionResult.encryptedData
+      }
+
+      // Log the save operation for audit
+      hipaaCompliance.logAuditEntry('case_saved', caseData, {
+        dataType: 'conversation',
+        severity: 'medium',
+        details: { fileName, overwriteId, encrypted: true }
       })
-      toast.success('Case updated successfully!')
-    } else {
-      // Save new case
-      setSavedCases(prev => {
-        const updated = [caseData, ...prev]
-        console.log('📝 New cases list:', updated)
-        return updated
+
+      if (overwriteId) {
+        // Update existing case
+        setSavedCases(prev => {
+          const updated = prev.map(case_ => 
+            case_.id === overwriteId ? encryptedCaseData : case_
+          )
+          console.log('📝 Updated cases:', updated)
+          return updated
+        })
+        toast.success('Case updated successfully!')
+      } else {
+        // Save new case
+        setSavedCases(prev => {
+          const updated = [encryptedCaseData, ...prev]
+          console.log('📝 New cases list:', updated)
+          return updated
+        })
+        toast.success('Case saved successfully!')
+      }
+      
+      setShowSaveDialog(false)
+      setNewFileName('')
+      setSelectedFileToOverwrite('')
+    } catch (error) {
+      console.error('Error saving case:', error)
+      toast.error('Failed to save case')
+      hipaaCompliance.logAuditEntry('case_save_failed', caseData, {
+        dataType: 'conversation',
+        severity: 'high',
+        success: false,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error'
       })
-      toast.success('Case saved successfully!')
     }
-    
-    setShowSaveDialog(false)
-    setNewFileName('')
-    setSelectedFileToOverwrite('')
   }
 
   // Load a saved case
-  const loadCase = (caseId: string) => {
+  const loadCase = async (caseId: string) => {
     console.log('📂 Loading case with ID:', caseId)
     console.log('📂 Available cases:', savedCases)
     const caseToLoad = savedCases.find(case_ => case_.id === caseId)
     if (caseToLoad) {
       console.log('📂 Found case to load:', caseToLoad)
       
-      // Convert timestamp strings back to Date objects for messages
-      const messagesWithDates = caseToLoad.messages.map(msg => ({
-        ...msg,
-        timestamp: new Date(msg.timestamp)
-      }))
-      
-      setMessages(messagesWithDates)
-      setMedicalExtraction(caseToLoad.medicalExtraction)
-      setConversationSummary(caseToLoad.conversationSummary)
-      setShowLoadDialog(false)
-      setSelectedFileToLoad('')
-      toast.success(`Loaded case: ${caseToLoad.name}`)
+      try {
+        // Decrypt medical data if it's encrypted
+        let decryptedData = caseToLoad
+        if (caseToLoad.encrypted && caseToLoad.encryptedData) {
+          const decryptionResult = await medicalEncryption.decryptMedicalData(caseToLoad.encryptedData)
+          if (!decryptionResult.success) {
+            console.error('Failed to decrypt case data:', decryptionResult.error)
+            toast.error('Failed to decrypt case data')
+            return
+          }
+          decryptedData = decryptionResult.data
+        }
+        
+        // Convert timestamp strings back to Date objects for messages
+        const messagesWithDates = decryptedData.messages.map((msg: any) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }))
+        
+        setMessages(messagesWithDates)
+        setMedicalExtraction(decryptedData.medicalExtraction)
+        setConversationSummary(decryptedData.conversationSummary)
+        setShowLoadDialog(false)
+        setSelectedFileToLoad('')
+        
+        // Log the load operation for audit
+        hipaaCompliance.logAuditEntry('case_loaded', decryptedData, {
+          dataType: 'conversation',
+          severity: 'low',
+          details: { caseId, caseName: caseToLoad.name }
+        })
+        
+        toast.success(`Loaded case: ${caseToLoad.name}`)
+      } catch (error) {
+        console.error('Error loading case:', error)
+        toast.error('Failed to load case')
+        hipaaCompliance.logAuditEntry('case_load_failed', null, {
+          dataType: 'conversation',
+          severity: 'high',
+          success: false,
+          errorMessage: error instanceof Error ? error.message : 'Unknown error'
+        })
+      }
     } else {
       console.error('❌ Case not found:', caseId)
       toast.error('Case not found!')
@@ -496,6 +563,41 @@ function App() {
     
     // Log app initialization
     hipaaCompliance.logAuditEntry('app_initialized')
+  }, [])
+
+  // Initialize medical encryption
+  useEffect(() => {
+    const initializeMedicalEncryption = async () => {
+      try {
+        const initialized = await medicalEncryption.initialize()
+        if (initialized) {
+          console.log('🔐 Medical encryption initialized successfully')
+          hipaaCompliance.logAuditEntry('medical_encryption_initialized', null, {
+            dataType: 'settings',
+            severity: 'medium',
+            success: true
+          })
+        } else {
+          console.error('Failed to initialize medical encryption')
+          hipaaCompliance.logAuditEntry('medical_encryption_failed', null, {
+            dataType: 'settings',
+            severity: 'high',
+            success: false,
+            errorMessage: 'Medical encryption initialization failed'
+          })
+        }
+      } catch (error) {
+        console.error('Error initializing medical encryption:', error)
+        hipaaCompliance.logAuditEntry('medical_encryption_error', null, {
+          dataType: 'settings',
+          severity: 'critical',
+          success: false,
+          errorMessage: error instanceof Error ? error.message : 'Unknown error'
+        })
+      }
+    }
+    
+    initializeMedicalEncryption()
   }, [])
 
   // Save API keys to secure storage
@@ -1125,6 +1227,13 @@ ${conversationText}
 
 Provide a focused, actionable summary for clinical decision-making in ${doctorLanguageName}.`
 
+      // Log AI request for audit
+      hipaaCompliance.logAuditEntry('ai_summary_request', { messageCount: messages.length, doctorLanguage }, {
+        dataType: 'summary',
+        severity: 'medium',
+        details: { provider: selectedProvider, model: 'gpt-3.5-turbo' }
+      })
+
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -1145,6 +1254,15 @@ Provide a focused, actionable summary for clinical decision-making in ${doctorLa
       if (!response.ok) {
         const errorText = await response.text()
         console.error('AI summary generation failed:', response.status, errorText)
+        
+        // Log AI failure for audit
+        hipaaCompliance.logAuditEntry('ai_summary_failed', null, {
+          dataType: 'summary',
+          severity: 'high',
+          success: false,
+          errorMessage: `HTTP ${response.status}: ${errorText}`
+        })
+        
         throw new Error(`AI summary generation failed: ${response.status}`)
       }
 
@@ -1154,7 +1272,7 @@ Provide a focused, actionable summary for clinical decision-making in ${doctorLa
       // Parse AI response
       const summary = JSON.parse(aiResponse)
       
-      return {
+      const result = {
         keyPoints: summary.keyPoints || [],
         medicalFindings: summary.medicalFindings || [],
         recommendations: summary.recommendations || [],
@@ -1163,8 +1281,26 @@ Provide a focused, actionable summary for clinical decision-making in ${doctorLa
         confidence: summary.confidence || 0.7,
         lastUpdated: new Date()
       }
+
+      // Log successful AI response for audit
+      hipaaCompliance.logAuditEntry('ai_summary_success', result, {
+        dataType: 'summary',
+        severity: 'low',
+        details: { urgency: result.urgency, confidence: result.confidence }
+      })
+      
+      return result
     } catch (error) {
       console.error('AI conversation summary failed:', error)
+      
+      // Log AI error for audit
+      hipaaCompliance.logAuditEntry('ai_summary_error', null, {
+        dataType: 'summary',
+        severity: 'high',
+        success: false,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error'
+      })
+      
       // Show user-friendly message about fallback
       if (aiStatus === 'active') {
         toast.error('AI summary generation failed, using basic features')
@@ -1907,6 +2043,8 @@ Return a comprehensive JSON object with all medical information intelligently ca
                     </div>
                   </>
                 )}
+
+
               </div>
               
               <div className="flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-3 sm:px-4 py-2">
@@ -3167,19 +3305,45 @@ Return a comprehensive JSON object with all medical information intelligently ca
               <div className="space-y-2 text-sm text-white/80">
                 <div className="flex justify-between">
                   <span>Data Anonymization:</span>
-                  <span className="text-green-400">✓ Enabled</span>
+                  <span className={hipaaCompliance.getComplianceStatus().piiProtection ? "text-green-400" : "text-red-400"}>
+                    {hipaaCompliance.getComplianceStatus().piiProtection ? "✓ Enabled" : "✗ Disabled"}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Audit Logging:</span>
-                  <span className="text-green-400">✓ Active</span>
+                  <span className={hipaaCompliance.getComplianceStatus().auditLogging ? "text-green-400" : "text-red-400"}>
+                    {hipaaCompliance.getComplianceStatus().auditLogging ? "✓ Active" : "✗ Inactive"}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Consent Management:</span>
-                  <span className="text-green-400">✓ Configured</span>
+                  <span className={hipaaCompliance.getComplianceStatus().consentGiven ? "text-green-400" : "text-red-400"}>
+                    {hipaaCompliance.getComplianceStatus().consentGiven ? "✓ Configured" : "✗ Not Configured"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Medical Data Encryption:</span>
+                  <span className={hipaaCompliance.getComplianceStatus().encryptionEnabled ? "text-green-400" : "text-red-400"}>
+                    {hipaaCompliance.getComplianceStatus().encryptionEnabled ? "✓ AES-256-GCM" : "✗ Disabled"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Breach Detection:</span>
+                  <span className={hipaaCompliance.getComplianceStatus().breachDetection ? "text-green-400" : "text-red-400"}>
+                    {hipaaCompliance.getComplianceStatus().breachDetection ? "✓ Active" : "✗ Inactive"}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Data Retention:</span>
-                  <span className="text-green-400">7 days</span>
+                  <span className={hipaaCompliance.getComplianceStatus().dataRetention ? "text-green-400" : "text-red-400"}>
+                    {hipaaCompliance.getComplianceStatus().dataRetention ? "✓ 7 days" : "✗ Disabled"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Security Breaches:</span>
+                  <span className={hipaaCompliance.getComplianceStatus().securityBreaches === 0 ? "text-green-400" : "text-red-400"}>
+                    {hipaaCompliance.getComplianceStatus().securityBreaches} detected
+                  </span>
                 </div>
               </div>
             </div>
