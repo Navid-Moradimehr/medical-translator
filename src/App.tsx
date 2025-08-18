@@ -108,12 +108,37 @@ function App() {
 
   // Simple language switching: just swap the languages when role changes
   const autoSwitchLanguages = (newIsDoctor: boolean) => {
-    // Simply swap the current source and target languages
-    const currentSource = sourceLanguage
-    const currentTarget = currentLanguage
+    // Get the base language codes for proper swapping
+    const currentSourceBase = sourceLanguage.split('-')[0] // e.g., 'en-US' -> 'en'
+    const currentTargetBase = currentLanguage // e.g., 'es'
     
-    setSourceLanguage(currentTarget)
-    setCurrentLanguage(currentSource)
+    // Map short codes to full codes for source language
+    const languageToFullCode: Record<string, string> = {
+      'en': 'en-US',
+      'es': 'es-ES', 
+      'pt': 'pt-BR',
+      'fa': 'fa-IR',
+      'ar': 'ar-SA',
+      'zh': 'zh-CN',
+      'fr': 'fr-FR',
+      'de': 'de-DE'
+    }
+    
+    // Map full codes to short codes for target language
+    const fullCodeToLanguage: Record<string, string> = {
+      'en-US': 'en',
+      'es-ES': 'es',
+      'pt-BR': 'pt', 
+      'fa-IR': 'fa',
+      'ar-SA': 'ar',
+      'zh-CN': 'zh',
+      'fr-FR': 'fr',
+      'de-DE': 'de'
+    }
+    
+    // Swap the languages with proper code conversion
+    setSourceLanguage(languageToFullCode[currentTargetBase] || currentTargetBase)
+    setCurrentLanguage(fullCodeToLanguage[sourceLanguage] || currentSourceBase)
   }
 
   // Enhanced role switching with automatic language switching
@@ -800,7 +825,21 @@ function App() {
 
       const conversationText = messages.map(msg => `${msg.isDoctor ? 'Doctor' : 'Patient'}: ${msg.text}`).join('\n')
 
-      const summaryPrompt = `You are a medical AI assistant. Generate a concise, real-time summary of this medical conversation including:
+      // Detect doctor's language from source language setting
+      const doctorLanguage = sourceLanguage.split('-')[0] // e.g., 'en-US' -> 'en'
+      const languageNames: Record<string, string> = {
+        'en': 'English',
+        'es': 'Spanish', 
+        'pt': 'Portuguese',
+        'fa': 'Persian',
+        'ar': 'Arabic',
+        'zh': 'Chinese',
+        'fr': 'French',
+        'de': 'German'
+      }
+      const doctorLanguageName = languageNames[doctorLanguage] || 'English'
+
+      const summaryPrompt = `You are a medical AI assistant. Generate a concise, real-time summary of this medical conversation in ${doctorLanguageName} (doctor's language). Include:
 
 1. **Key Points**: Main topics discussed (max 3 points)
 2. **Medical Findings**: Clinical observations and symptoms mentioned (max 3 findings)
@@ -808,6 +847,8 @@ function App() {
 4. **Urgency Level**: routine/urgent/emergency based on symptoms and context
 5. **Next Steps**: Immediate actions needed (max 3 steps)
 6. **Confidence**: 0-1 score based on clarity and completeness
+
+IMPORTANT: Always respond in ${doctorLanguageName}, regardless of the conversation language.
 
 Format as JSON:
 {
@@ -822,7 +863,7 @@ Format as JSON:
 Conversation:
 ${conversationText}
 
-Provide a focused, actionable summary for clinical decision-making.`
+Provide a focused, actionable summary for clinical decision-making in ${doctorLanguageName}.`
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -871,12 +912,28 @@ Provide a focused, actionable summary for clinical decision-making.`
     try {
       const conversationText = messages.map(msg => `${msg.isDoctor ? 'Doctor' : 'Patient'}: ${msg.text}`).join('\n')
 
+      // Detect doctor's language from source language setting
+      const doctorLanguage = sourceLanguage.split('-')[0] // e.g., 'en-US' -> 'en'
+      const languageNames: Record<string, string> = {
+        'en': 'English',
+        'es': 'Spanish', 
+        'pt': 'Portuguese',
+        'fa': 'Persian',
+        'ar': 'Arabic',
+        'zh': 'Chinese',
+        'fr': 'French',
+        'de': 'German'
+      }
+      const doctorLanguageName = languageNames[doctorLanguage] || 'English'
+
       const systemPrompt = `You are an intelligent medical AI assistant that analyzes doctor-patient conversations in real-time. Your role is to:
 
 1. **Intelligently categorize medical information** based on content, not conversation stage
 2. **Separate patient background** from current situation and ongoing care
 3. **Update information dynamically** as new details emerge
-4. **Provide context-appropriate summaries** for doctors
+4. **Provide context-appropriate summaries** for doctors in ${doctorLanguageName}
+
+**IMPORTANT: Always respond in ${doctorLanguageName}, regardless of the conversation language.**
 
 **Information Categorization Rules:**
 - **Patient Background**: Historical information (past conditions, surgeries, family history, chronic medications, allergies, lifestyle habits)
@@ -888,9 +945,9 @@ Provide a focused, actionable summary for clinical decision-making.`
 - Analyze the NATURE of information, not when it was mentioned
 - Update categories as new information emerges
 - Maintain comprehensive tracking across all categories
-- Provide real-time insights for clinical decision making`
+- Provide real-time insights for clinical decision making in ${doctorLanguageName}`
 
-      const analysisPrompt = `Analyze this medical conversation and provide a comprehensive, intelligently categorized medical summary:
+      const analysisPrompt = `Analyze this medical conversation and provide a comprehensive, intelligently categorized medical summary in ${doctorLanguageName}:
 
 {
   "patientBackground": {
@@ -943,11 +1000,12 @@ Provide a focused, actionable summary for clinical decision-making.`
 - Update all categories as new information emerges
 - Maintain comprehensive tracking across the entire conversation
 - Focus on clinical relevance and decision-making support
+- **IMPORTANT: Always respond in ${doctorLanguageName}, regardless of conversation language**
 
 Conversation:
 ${conversationText}
 
-Return a comprehensive JSON object with all medical information intelligently categorized.`
+Return a comprehensive JSON object with all medical information intelligently categorized in ${doctorLanguageName}.`
 
       // Log the intelligent analysis approach
       console.log('🤖 AI Medical Extraction - Intelligent Analysis:')
