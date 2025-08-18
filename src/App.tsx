@@ -209,7 +209,7 @@ function App() {
     }
     
     initializeSecureStorage()
-  }, [])
+  }, []) // Empty dependency array ensures this runs only once on mount
 
   // Initialize HIPAA compliance and privacy settings
   useEffect(() => {
@@ -885,7 +885,9 @@ Provide a focused, actionable summary for clinical decision-making in ${doctorLa
       })
 
       if (!response.ok) {
-        throw new Error('AI summary generation failed')
+        const errorText = await response.text()
+        console.error('AI summary generation failed:', response.status, errorText)
+        throw new Error(`AI summary generation failed: ${response.status}`)
       }
 
       const data = await response.json()
@@ -905,6 +907,10 @@ Provide a focused, actionable summary for clinical decision-making in ${doctorLa
       }
     } catch (error) {
       console.error('AI conversation summary failed:', error)
+      // Show user-friendly message about fallback
+      if (aiStatus === 'active') {
+        toast.error('AI summary generation failed, using basic features')
+      }
       return null
     }
   }
@@ -1132,6 +1138,10 @@ Return a comprehensive JSON object with all medical information intelligently ca
       return processedExtraction
     } catch (error) {
       console.error('AI extraction failed, falling back to pattern-based extraction:', error)
+      // Show user-friendly message about fallback
+      if (aiStatus === 'active') {
+        toast.error('AI medical analysis failed, using basic pattern detection')
+      }
       return MedicalExtractionService.extractFromConversation(messages)
     }
   }
@@ -1586,7 +1596,7 @@ Return a comprehensive JSON object with all medical information intelligently ca
                   aiStatus === 'inactive' ? 'text-gray-400' : 'text-yellow-400'
                 }`}>
                   {aiStatus === 'active' ? 'AI Active' :
-                   aiStatus === 'inactive' ? 'AI Inactive' : 'Checking...'}
+                   aiStatus === 'inactive' ? 'Basic Mode' : 'Checking...'}
                 </span>
               </div>
               
