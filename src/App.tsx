@@ -17,7 +17,12 @@ import {
   X,
   Trash2,
   Star,
-  MessageSquare
+  MessageSquare,
+  Menu,
+  Save,
+  FolderOpen,
+  Trash,
+  FileText
 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import { sanitizeInput, encodeOutput } from './utils/security'
@@ -106,6 +111,25 @@ function App() {
   } | null>(null)
   const [showConversationSummary, setShowConversationSummary] = useState(false)
 
+  // Hamburger menu and saved cases state
+  const [showHamburgerMenu, setShowHamburgerMenu] = useState(false)
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [showLoadDialog, setShowLoadDialog] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [saveMode, setSaveMode] = useState<'new' | 'existing'>('new')
+  const [newFileName, setNewFileName] = useState('')
+  const [selectedFileToOverwrite, setSelectedFileToOverwrite] = useState('')
+  const [selectedFileToLoad, setSelectedFileToLoad] = useState('')
+  const [selectedFileToDelete, setSelectedFileToDelete] = useState('')
+  const [savedCases, setSavedCases] = useState<Array<{
+    id: string
+    name: string
+    timestamp: string
+    messages: Message[]
+    medicalExtraction: MedicalExtraction | null
+    conversationSummary: any
+  }>>([])
+
   // Simple language switching: just swap the languages when role changes
   const autoSwitchLanguages = (newIsDoctor: boolean) => {
     // Get the base language codes for proper swapping
@@ -140,6 +164,98 @@ function App() {
     setSourceLanguage(languageToFullCode[currentTargetBase] || currentTargetBase)
     setCurrentLanguage(fullCodeToLanguage[sourceLanguage] || currentSourceBase)
   }
+
+  // Load saved cases from localStorage on component mount
+  useEffect(() => {
+    const loadSavedCases = () => {
+      try {
+        const saved = localStorage.getItem('medical_translator_saved_cases')
+        if (saved) {
+          const cases = JSON.parse(saved)
+          setSavedCases(cases)
+        }
+      } catch (error) {
+        console.error('Failed to load saved cases:', error)
+      }
+    }
+    loadSavedCases()
+  }, [])
+
+  // Save cases to localStorage whenever savedCases changes
+  useEffect(() => {
+    localStorage.setItem('medical_translator_saved_cases', JSON.stringify(savedCases))
+  }, [savedCases])
+
+  // Save current conversation and medical data
+  const saveCurrentCase = (fileName: string, overwriteId?: string) => {
+    const caseData = {
+      id: overwriteId || `case_${Date.now()}`,
+      name: fileName,
+      timestamp: new Date().toISOString(),
+      messages: messages,
+      medicalExtraction: medicalExtraction,
+      conversationSummary: conversationSummary
+    }
+
+    if (overwriteId) {
+      // Update existing case
+      setSavedCases(prev => prev.map(case_ => 
+        case_.id === overwriteId ? caseData : case_
+      ))
+      toast.success('Case updated successfully!')
+    } else {
+      // Save new case
+      setSavedCases(prev => [caseData, ...prev])
+      toast.success('Case saved successfully!')
+    }
+    
+    setShowSaveDialog(false)
+    setNewFileName('')
+    setSelectedFileToOverwrite('')
+  }
+
+  // Load a saved case
+  const loadCase = (caseId: string) => {
+    const caseToLoad = savedCases.find(case_ => case_.id === caseId)
+    if (caseToLoad) {
+      setMessages(caseToLoad.messages)
+      setMedicalExtraction(caseToLoad.medicalExtraction)
+      setConversationSummary(caseToLoad.conversationSummary)
+      setShowLoadDialog(false)
+      setSelectedFileToLoad('')
+      toast.success(`Loaded case: ${caseToLoad.name}`)
+    }
+  }
+
+  // Clear current conversation
+  const clearConversation = () => {
+    setMessages([])
+    setMedicalExtraction(null)
+    setConversationSummary(null)
+    setShowHamburgerMenu(false)
+    toast.success('Conversation cleared!')
+  }
+
+  // Delete a saved case
+  const deleteCase = (caseId: string) => {
+    setSavedCases(prev => prev.filter(case_ => case_.id !== caseId))
+    setShowDeleteDialog(false)
+    setSelectedFileToDelete('')
+    toast.success('Case deleted successfully!')
+  }
+
+  // Close hamburger menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element
+      if (showHamburgerMenu && !target.closest('.hamburger-menu')) {
+        setShowHamburgerMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showHamburgerMenu])
 
   // Enhanced role switching with automatic language switching
   const switchRole = (newIsDoctor: boolean) => {
@@ -1591,6 +1707,17 @@ Return a comprehensive JSON object with all medical information intelligently ca
                 </h1>
                 <p className="text-purple-200 text-xs sm:text-sm">AI-Powered Medical Communication</p>
               </div>
+              
+              {/* Hamburger Menu Button */}
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setShowHamburgerMenu(!showHamburgerMenu)}
+                className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white p-2 rounded-xl transition-all duration-200 ml-4"
+                aria-label="Open menu"
+              >
+                <Menu className="w-5 h-5" />
+              </motion.button>
             </motion.div>
             
             <div className="flex items-center justify-center sm:justify-end space-x-2 sm:space-x-4">
@@ -1635,6 +1762,75 @@ Return a comprehensive JSON object with all medical information intelligently ca
           </div>
         </div>
       </header>
+
+      {/* Hamburger Menu Dropdown */}
+      {showHamburgerMenu && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          className="absolute top-20 left-4 z-50 bg-white/10 backdrop-blur-xl border border-white/20 rounded-xl shadow-2xl min-w-64 hamburger-menu"
+        >
+          <div className="p-4 space-y-2">
+            {/* Save Option */}
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                setShowSaveDialog(true)
+                setShowHamburgerMenu(false)
+              }}
+              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-white"
+            >
+              <Save className="w-5 h-5" />
+              <span>Save Case</span>
+            </motion.button>
+
+            {/* Load Option */}
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                setShowLoadDialog(true)
+                setShowHamburgerMenu(false)
+              }}
+              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-white"
+            >
+              <FolderOpen className="w-5 h-5" />
+              <span>Load Case</span>
+            </motion.button>
+
+            {/* Clear Option */}
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                if (window.confirm('Are you sure you want to clear the current conversation? This action cannot be undone.')) {
+                  clearConversation()
+                }
+              }}
+              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-white"
+            >
+              <FileText className="w-5 h-5" />
+              <span>Clear Conversation</span>
+            </motion.button>
+
+            {/* Delete Option */}
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                setShowDeleteDialog(true)
+                setShowHamburgerMenu(false)
+              }}
+              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-white"
+            >
+              <Trash className="w-5 h-5" />
+              <span>Delete Cases</span>
+            </motion.button>
+          </div>
+        </motion.div>
+      )}
 
       <div className="relative z-10 max-w-4xl mx-auto p-4 sm:p-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
@@ -2955,6 +3151,252 @@ Return a comprehensive JSON object with all medical information intelligently ca
           onClick={() => setShowSettings(false)}
           className="fixed inset-0 bg-black/50 z-40 md:hidden"
         />
+      )}
+
+      {/* Save Dialog */}
+      {showSaveDialog && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowSaveDialog(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-6 max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-bold text-white mb-4">Save Case</h3>
+            
+            {saveMode === 'new' ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-white text-sm font-medium mb-2">File Name</label>
+                  <input
+                    type="text"
+                    value={newFileName}
+                    onChange={(e) => setNewFileName(e.target.value)}
+                    placeholder="Enter case name..."
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={() => saveCurrentCase(newFileName)}
+                    disabled={!newFileName.trim()}
+                    className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Save New
+                  </button>
+                  <button
+                    onClick={() => setSaveMode('existing')}
+                    className="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Save to Existing
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-white text-sm font-medium mb-2">Select Case to Overwrite</label>
+                  <select
+                    value={selectedFileToOverwrite}
+                    onChange={(e) => setSelectedFileToOverwrite(e.target.value)}
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">Select a case...</option>
+                    {savedCases.map((case_) => (
+                      <option key={case_.id} value={case_.id}>
+                        {case_.name} - {new Date(case_.timestamp).toLocaleString()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={() => saveCurrentCase('', selectedFileToOverwrite)}
+                    disabled={!selectedFileToOverwrite}
+                    className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Overwrite
+                  </button>
+                  <button
+                    onClick={() => setSaveMode('new')}
+                    className="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Save New Instead
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            <button
+              onClick={() => {
+                setShowSaveDialog(false)
+                setSaveMode('new')
+                setNewFileName('')
+                setSelectedFileToOverwrite('')
+              }}
+              className="absolute top-4 right-4 text-white/70 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </motion.div>
+        </motion.div>
+      )}
+
+      {/* Load Dialog */}
+      {showLoadDialog && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowLoadDialog(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-6 max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-bold text-white mb-4">Load Case</h3>
+            
+            {savedCases.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-white/70 mb-4">No saved cases found.</p>
+                <button
+                  onClick={() => setShowLoadDialog(false)}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-white text-sm font-medium mb-2">Select Case to Load</label>
+                  <select
+                    value={selectedFileToLoad}
+                    onChange={(e) => setSelectedFileToLoad(e.target.value)}
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">Select a case...</option>
+                    {savedCases.map((case_) => (
+                      <option key={case_.id} value={case_.id}>
+                        {case_.name} - {new Date(case_.timestamp).toLocaleString()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={() => loadCase(selectedFileToLoad)}
+                    disabled={!selectedFileToLoad}
+                    className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Load Case
+                  </button>
+                  <button
+                    onClick={() => setShowLoadDialog(false)}
+                    className="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            <button
+              onClick={() => setShowLoadDialog(false)}
+              className="absolute top-4 right-4 text-white/70 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </motion.div>
+        </motion.div>
+      )}
+
+      {/* Delete Dialog */}
+      {showDeleteDialog && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowDeleteDialog(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-6 max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-bold text-white mb-4">Delete Case</h3>
+            
+            {savedCases.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-white/70 mb-4">No saved cases to delete.</p>
+                <button
+                  onClick={() => setShowDeleteDialog(false)}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-white text-sm font-medium mb-2">Select Case to Delete</label>
+                  <select
+                    value={selectedFileToDelete}
+                    onChange={(e) => setSelectedFileToDelete(e.target.value)}
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">Select a case...</option>
+                    {savedCases.map((case_) => (
+                      <option key={case_.id} value={case_.id}>
+                        {case_.name} - {new Date(case_.timestamp).toLocaleString()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={() => {
+                      if (window.confirm('Are you sure you want to delete this case? This action cannot be undone.')) {
+                        deleteCase(selectedFileToDelete)
+                      }
+                    }}
+                    disabled={!selectedFileToDelete}
+                    className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteDialog(false)}
+                    className="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            <button
+              onClick={() => setShowDeleteDialog(false)}
+              className="absolute top-4 right-4 text-white/70 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </motion.div>
+        </motion.div>
       )}
     </div>
   )
