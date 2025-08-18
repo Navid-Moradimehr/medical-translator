@@ -1,35 +1,28 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  Mic, 
-  MicOff,
-  Volume2, 
-  Settings, 
-  User, 
-  Stethoscope,
-  RotateCcw,
-  Sparkles,
-  Zap,
-  Shield,
-  Wifi,
-  WifiOff,
-  Globe,
-  X,
-  Trash2,
-  Star,
-  MessageSquare,
-  Menu,
-  Save,
-  FolderOpen,
-  Trash,
-  FileText
-} from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Star } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
+
+// Import modular components
+import {
+  Header,
+  RoleSwitcher,
+  RecordingControls,
+  LanguageSelector,
+  ManualTextInput,
+  StatusIndicator,
+  ConversationDisplay,
+  SettingsPanel,
+  SaveDialog,
+  LoadDialog,
+  DeleteDialog,
+  MedicalSummaryModal,
+  ConversationSummaryModal
+} from './components'
+
 import { sanitizeInput, encodeOutput } from './utils/security'
 import { 
-  getAccessibilityProps, 
   ScreenReader, 
-  handleKeyboardNavigation,
   createSkipLink
 } from './utils/accessibility.tsx'
 import { secureStorage, migrateExistingKeys } from './utils/secureStorage'
@@ -1310,7 +1303,7 @@ Provide a focused, actionable summary for clinical decision-making in ${doctorLa
   }
 
   // AI-powered medical extraction
-  const extractMedicalWithAI = async (messages: Message[]) => {
+    const extractMedicalWithAI = async (messages: Message[]) => {
     try {
       const conversationText = messages.map(msg => `${msg.isDoctor ? 'Doctor' : 'Patient'}: ${msg.text}`).join('\n')
 
@@ -1464,7 +1457,7 @@ Return a comprehensive JSON object with all medical information intelligently ca
         medications: Array.isArray(extraction.ongoingCare?.medications) ? extraction.ongoingCare.medications : (Array.isArray(extraction.medications) ? extraction.medications : []),
         medicalHistory: {
           conditions: Array.isArray(extraction.patientBackground?.chronicConditions) ? extraction.patientBackground.chronicConditions : (Array.isArray(extraction.medicalHistory?.conditions) ? extraction.medicalHistory.conditions : []),
-          surgeries: Array.isArray(extraction.patientBackground?.pastMedicalHistory) ? extraction.patientBackground.pastMedicalHistory.filter(item => item.toLowerCase().includes('surgery') || item.toLowerCase().includes('operation')) : (Array.isArray(extraction.medicalHistory?.surgeries) ? extraction.medicalHistory.surgeries : []),
+          surgeries: Array.isArray(extraction.patientBackground?.pastMedicalHistory) ? extraction.patientBackground.pastMedicalHistory.filter((item: string) => item.toLowerCase().includes('surgery') || item.toLowerCase().includes('operation')) : (Array.isArray(extraction.medicalHistory?.surgeries) ? extraction.medicalHistory.surgeries : []),
           allergies: Array.isArray(extraction.patientBackground?.allergies) ? extraction.patientBackground.allergies : (Array.isArray(extraction.medicalHistory?.allergies) ? extraction.medicalHistory.allergies : []),
           familyHistory: Array.isArray(extraction.patientBackground?.familyHistory) ? extraction.patientBackground.familyHistory : (Array.isArray(extraction.medicalHistory?.familyHistory) ? extraction.medicalHistory.familyHistory : []),
           lifestyle: Array.isArray(extraction.patientBackground?.lifestyle) ? extraction.patientBackground.lifestyle : (Array.isArray(extraction.medicalHistory?.lifestyle) ? extraction.medicalHistory.lifestyle : [])
@@ -1863,7 +1856,23 @@ Return a comprehensive JSON object with all medical information intelligently ca
 
   // Get API key names for current provider
   const getApiKeyNamesForProvider = (providerId: string) => {
-    return apiKeyNames[providerId] || []
+    // Filter API key names that start with the provider ID
+    return Object.keys(apiKeys).filter(keyName => keyName.startsWith(`${providerId}_`))
+  }
+
+  // Handle provider change with API key reset
+  const handleProviderChange = (provider: string) => {
+    setSelectedProvider(provider)
+    
+    // Get available API keys for the new provider
+    const availableKeys = getApiKeyNamesForProvider(provider)
+    
+    // If there are available keys, select the first one
+    if (availableKeys.length > 0) {
+      setSelectedApiKey(availableKeys[0])
+    } else {
+      setSelectedApiKey('') // Reset if no keys available
+    }
   }
 
 
@@ -1877,10 +1886,6 @@ Return a comprehensive JSON object with all medical information intelligently ca
       const result = await secureStorage.storeApiKey(providerKeyName, key)
       if (result.success) {
         setApiKeys(prev => ({ ...prev, [providerKeyName]: key }))
-        setApiKeyNames(prev => ({
-          ...prev,
-          [selectedProvider]: [...(prev[selectedProvider] || []), providerKeyName]
-        }))
         setNewApiKey('')
         setNewApiKeyName('')
         setShowApiKeyInput(false)
@@ -1909,10 +1914,6 @@ Return a comprehensive JSON object with all medical information intelligently ca
           delete newKeys[name]
           return newKeys
         })
-        setApiKeyNames(prev => ({
-          ...prev,
-          [selectedProvider]: (prev[selectedProvider] || []).filter(keyName => keyName !== name)
-        }))
         if (selectedApiKey === name) {
           setSelectedApiKey('')
         }
@@ -1931,6 +1932,72 @@ Return a comprehensive JSON object with all medical information intelligently ca
     setNewApiKeyName(name)
     setNewApiKey(apiKeys[name] || '')
     setShowApiKeyInput(true)
+  }
+
+  // Handle save case
+  const handleSaveCase = async () => {
+    if (saveMode === 'new' && !newFileName.trim()) {
+      toast.error('Please enter a file name')
+      return
+    }
+    
+    if (saveMode === 'existing' && !selectedFileToOverwrite) {
+      toast.error('Please select a file to overwrite')
+      return
+    }
+    
+    try {
+      const fileName = saveMode === 'new' ? newFileName : selectedFileToOverwrite
+      await saveCurrentCase(fileName, saveMode === 'existing' ? selectedFileToOverwrite : undefined)
+      setShowSaveDialog(false)
+      setNewFileName('')
+      setSaveMode('new')
+      setSelectedFileToOverwrite('')
+      toast.success('Case saved successfully')
+    } catch (error) {
+      console.error('Error saving case:', error)
+      toast.error('Failed to save case')
+    }
+  }
+
+  // Handle load case
+  const handleLoadCase = async () => {
+    if (!selectedFileToLoad) {
+      toast.error('Please select a file to load')
+      return
+    }
+    
+    try {
+      await loadCase(selectedFileToLoad)
+      setShowLoadDialog(false)
+      setSelectedFileToLoad('')
+      toast.success('Case loaded successfully')
+    } catch (error) {
+      console.error('Error loading case:', error)
+      toast.error('Failed to load case')
+    }
+  }
+
+  // Handle delete case
+  const handleDeleteCase = async () => {
+    if (!selectedFileToDelete) {
+      toast.error('Please select a file to delete')
+      return
+    }
+    
+    if (!window.confirm(`Are you sure you want to delete "${selectedFileToDelete}"?`)) {
+      return
+    }
+    
+    try {
+      deleteCase(selectedFileToDelete)
+      setShowDeleteDialog(false)
+      setSelectedFileToDelete('')
+      toast.success('Case deleted successfully')
+    } catch (error) {
+      console.error('Error deleting case:', error)
+      toast.error('Failed to delete case')
+    }
   }
 
 
@@ -1955,210 +2022,24 @@ Return a comprehensive JSON object with all medical information intelligently ca
         }}
       />
       
-      {/* Header */}
-      <header className="relative z-10 bg-white/10 backdrop-blur-xl border-b border-white/20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
-            <motion.div 
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="flex items-center space-x-3 sm:space-x-4"
-            >
-              {/* Hamburger Menu Button */}
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setShowHamburgerMenu(!showHamburgerMenu)}
-                className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white p-2 rounded-xl transition-all duration-200"
-                aria-label="Open menu"
-              >
-                <Menu className="w-5 h-5" />
-              </motion.button>
-              
-              <div className="relative">
-                <Stethoscope className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                  className="absolute -top-1 -right-1 w-3 h-3 sm:w-4 sm:h-4 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full"
-                >
-                  <Sparkles className="w-2 h-2 sm:w-3 sm:h-3 text-white" />
-                </motion.div>
-              </div>
-              <div>
-                <h1 className="text-xl sm:text-3xl font-bold bg-gradient-to-r from-white to-purple-200 bg-clip-text text-transparent">
-                  Medical Translator
-                </h1>
-                <p className="text-purple-200 text-xs sm:text-sm">AI-Powered Medical Communication</p>
-              </div>
-            </motion.div>
-            
-            <div className="flex items-center justify-center sm:justify-end space-x-2 sm:space-x-4">
-              {/* AI Mode Toggle and Status */}
-              <div className="flex items-center space-x-2">
-                {/* AI Status Indicator */}
-                <div className="flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-3 sm:px-4 py-2">
-                  <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full ${
-                    aiStatus === 'active' ? 'bg-green-400 animate-pulse' :
-                    aiStatus === 'inactive' ? 'bg-gray-400' : 'bg-yellow-400 animate-pulse'
-                  }`}></div>
-                  <span className={`text-white text-xs sm:text-sm font-medium ${
-                    aiStatus === 'active' ? 'text-green-400' :
-                    aiStatus === 'inactive' ? 'text-gray-400' : 'text-yellow-400'
-                  }`}>
-                    {aiMode === 'ai' ? 'AI Mode' : 'Basic Mode'}
-                  </span>
-                </div>
-
-                {/* AI Mode Toggle Button */}
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={toggleAiMode}
-                  className={`px-3 py-2 rounded-full text-xs sm:text-sm font-medium transition-all duration-200 ${
-                    aiMode === 'ai' 
-                      ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg' 
-                      : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
-                  }`}
-                >
-                  {aiMode === 'ai' ? '🤖 AI' : '🔧 Basic'}
-                </motion.button>
-
-                {/* Active Model Display */}
-                {aiMode === 'ai' && activeModel && (
-                  <>
-                    {/* Desktop version */}
-                    <div className="hidden sm:flex items-center space-x-2 bg-green-500/20 backdrop-blur-sm rounded-full px-3 py-2 border border-green-500/30">
-                      <Sparkles className="w-3 h-3 text-green-400" />
-                      <span className="text-green-400 text-xs font-medium">
-                        {activeModel}
-                      </span>
-                    </div>
-                    {/* Mobile version */}
-                    <div className="sm:hidden flex items-center space-x-1 bg-green-500/20 backdrop-blur-sm rounded-full px-2 py-1 border border-green-500/30">
-                      <Sparkles className="w-2 h-2 text-green-400" />
-                      <span className="text-green-400 text-xs font-medium">
-                        {activeModel.split(' ')[0]}
-                      </span>
-                    </div>
-                  </>
-                )}
-
-
-              </div>
-              
-              <div className="flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-3 sm:px-4 py-2">
-                {isOnline ? (
-                  <Wifi className="w-3 h-3 sm:w-4 sm:h-4 text-green-400" />
-                ) : (
-                  <WifiOff className="w-3 h-3 sm:w-4 sm:h-4 text-red-400" />
-                )}
-                <span className="text-white text-xs sm:text-sm">
-                  {isOnline ? 'Online' : 'Offline'}
-                </span>
-              </div>
-              
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setShowSettings(!showSettings)}
-                onKeyDown={(e) => handleKeyboardNavigation(e, () => setShowSettings(!showSettings))}
-                {...getAccessibilityProps('settings', { showSettings })}
-                className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white px-2 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-1 sm:space-x-2"
-              >
-                <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
-                <span className="text-xs sm:text-base">Settings</span>
-              </motion.button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Hamburger Menu Dropdown */}
-      {showHamburgerMenu && (
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -20 }}
-          className="absolute top-20 left-4 z-50 bg-white/10 backdrop-blur-xl border border-white/20 rounded-xl shadow-2xl min-w-64 hamburger-menu"
-        >
-          <div className="p-4 space-y-2">
-            {/* Save Option */}
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => {
-                refreshSavedCases()
-                setShowSaveDialog(true)
-                setShowHamburgerMenu(false)
-              }}
-              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-white"
-            >
-              <Save className="w-5 h-5" />
-              <span>Save Case</span>
-            </motion.button>
-
-            {/* Load Option */}
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => {
-                refreshSavedCases()
-                setShowLoadDialog(true)
-                setShowHamburgerMenu(false)
-              }}
-              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-white"
-            >
-              <FolderOpen className="w-5 h-5" />
-              <span>Load Case</span>
-            </motion.button>
-
-            {/* Clear Option */}
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => {
-                if (window.confirm('Are you sure you want to clear the current conversation? This action cannot be undone.')) {
-                  clearConversation()
-                }
-              }}
-              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-white"
-            >
-              <FileText className="w-5 h-5" />
-              <span>Clear Conversation</span>
-            </motion.button>
-
-            {/* Delete Option */}
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => {
-                refreshSavedCases()
-                setShowDeleteDialog(true)
-                setShowHamburgerMenu(false)
-              }}
-              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-white"
-            >
-              <Trash className="w-5 h-5" />
-              <span>Delete Cases</span>
-            </motion.button>
-
-            {/* New Case Option */}
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => {
-                if (window.confirm('Start a new case? This will clear the current conversation.')) {
-                  clearConversation()
-                }
-              }}
-              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 transition-all duration-200 text-blue-300"
-            >
-              <span>🆕 New Case</span>
-            </motion.button>
-          </div>
-        </motion.div>
-      )}
+      {/* Header Component */}
+      <Header
+        isOnline={isOnline}
+        aiStatus={aiStatus}
+        aiMode={aiMode}
+        activeModel={activeModel}
+        showSettings={showSettings}
+        showHamburgerMenu={showHamburgerMenu}
+        setShowSettings={setShowSettings}
+        setShowHamburgerMenu={setShowHamburgerMenu}
+        toggleAiMode={toggleAiMode}
+        refreshSavedCases={refreshSavedCases}
+        setShowSaveDialog={setShowSaveDialog}
+        setShowLoadDialog={setShowLoadDialog}
+        setShowDeleteDialog={setShowDeleteDialog}
+        clearConversation={clearConversation}
+      />
+      
 
       <div className="relative z-10 max-w-4xl mx-auto p-4 sm:p-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
@@ -2170,1886 +2051,255 @@ Return a comprehensive JSON object with all medical information intelligently ca
               animate={{ opacity: 1, y: 0 }}
               className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-4 sm:p-8 shadow-2xl"
             >
-              {/* Role Indicator */}
-              <div className="flex items-center justify-center mb-6 sm:mb-8">
-                <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-2 border border-white/20">
-                  <div className="flex items-center space-x-1 sm:space-x-2">
-                                        <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => switchRole(true)}
-                      onKeyDown={(e) => handleKeyboardNavigation(e, () => switchRole(true))}
-                      {...getAccessibilityProps('role-switch', { isDoctor: true })}
-                      className={`flex items-center space-x-2 sm:space-x-3 px-3 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-300 text-sm sm:text-base ${
-                        isDoctor 
-                          ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg' 
-                          : 'text-white/70 hover:text-white hover:bg-white/10'
-                      }`}
-                    >
-                      <User className="w-4 h-4 sm:w-5 sm:h-5" />
-                      <span className="font-medium">Doctor</span>
-                    </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => switchRole(false)}
-                      onKeyDown={(e) => handleKeyboardNavigation(e, () => switchRole(false))}
-                      {...getAccessibilityProps('role-switch', { isDoctor: false })}
-                      className={`flex items-center space-x-2 sm:space-x-3 px-3 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-300 text-sm sm:text-base ${
-                        !isDoctor 
-                          ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg' 
-                          : 'text-white/70 hover:text-white hover:bg-white/10'
-                      }`}
-                    >
-                      <User className="w-4 h-4 sm:w-5 sm:h-5" />
-                      <span className="font-medium">Patient</span>
-                    </motion.button>
-                  </div>
-                </div>
-              </div>
+              {/* Role Switcher Component */}
+              <RoleSwitcher
+                isDoctor={isDoctor}
+                switchRole={switchRole}
+              />
 
-              {/* Recording Controls */}
-              <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 lg:space-x-8 mb-6 sm:mb-10">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setShowManualInput(!showManualInput)}
-                  className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-2 text-sm sm:text-base"
-                >
-                  <span>Text Input</span>
-                </motion.button>
-                
-                {/* Main Recording Button */}
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={startRecording}
-                  onKeyDown={(e) => handleKeyboardNavigation(e, startRecording, ['Enter', ' '])}
-                  {...getAccessibilityProps('microphone', { isRecording })}
-                  className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center text-white shadow-2xl transition-all duration-300 ${
-                    isRecording 
-                      ? 'bg-gradient-to-r from-red-500 to-pink-600 animate-pulse' 
-                      : 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700'
-                  }`}
-                >
-                  {isRecording ? (
-                    <MicOff className="w-8 h-8 sm:w-10 sm:h-10" />
-                  ) : (
-                    <Mic className="w-8 h-8 sm:w-10 sm:h-10" />
-                  )}
-                  
-                  {/* Recording animation rings */}
-                  {isRecording && (
-                    <>
-                      <motion.div
-                        animate={{ scale: [1, 1.2, 1], opacity: [0.5, 0, 0.5] }}
-                        transition={{ duration: 2, repeat: Infinity }}
-                        className="absolute inset-0 border-2 border-red-400 rounded-full"
-                      />
-                      <motion.div
-                        animate={{ scale: [1, 1.4, 1], opacity: [0.3, 0, 0.3] }}
-                        transition={{ duration: 2, repeat: Infinity, delay: 0.5 }}
-                        className="absolute inset-0 border-2 border-red-300 rounded-full"
-                      />
-                    </>
-                  )}
-                </motion.button>
+              {/* Recording Controls Component */}
+              <RecordingControls
+                isRecording={isRecording}
+                showManualInput={showManualInput}
+                setShowManualInput={setShowManualInput}
+                startRecording={startRecording}
+                clearMessages={clearMessages}
+                medicalExtraction={medicalExtraction}
+                conversationSummary={conversationSummary}
+                setShowMedicalSummaryModal={setShowMedicalSummaryModal}
+                setShowConversationSummaryModal={setShowConversationSummaryModal}
+              />
 
+              {/* Language Selector Component */}
+              <LanguageSelector
+                sourceLanguage={sourceLanguage}
+                currentLanguage={currentLanguage}
+                setSourceLanguage={setSourceLanguage}
+                setCurrentLanguage={setCurrentLanguage}
+              />
 
-                
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={clearMessages}
-                  onKeyDown={(e) => handleKeyboardNavigation(e, clearMessages)}
-                  {...getAccessibilityProps('clear-conversation')}
-                  className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-2 text-sm sm:text-base"
-                >
-                  <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
-                  <span>Clear</span>
-                </motion.button>
-                
-                {/* Medical Summary Button */}
-                {medicalExtraction && medicalExtraction.confidence > 0.3 && (
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowMedicalSummaryModal(true)}
-                    className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 hover:from-blue-500/30 hover:to-purple-500/30 backdrop-blur-sm border border-blue-400/30 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-2 text-sm sm:text-base"
-                  >
-                    <Stethoscope className="w-4 h-4 sm:w-5 sm:h-5" />
-                    <span>Medical Summary</span>
-                    <div className={`w-2 h-2 rounded-full ${
-                      medicalExtraction.severity === 'high' ? 'bg-red-400' :
-                      medicalExtraction.severity === 'medium' ? 'bg-yellow-400' : 'bg-green-400'
-                    }`}></div>
-                  </motion.button>
-                )}
+              {/* Manual Text Input Component */}
+              <ManualTextInput
+                showManualInput={showManualInput}
+                manualText={manualText}
+                setManualText={setManualText}
+                handleManualTranslation={handleManualTranslation}
+              />
 
-                {/* Conversation Summary Button */}
-                {conversationSummary && conversationSummary.confidence > 0.5 && (
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowConversationSummaryModal(true)}
-                    className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 hover:from-green-500/30 hover:to-emerald-500/30 backdrop-blur-sm border border-green-400/30 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-2 text-sm sm:text-base"
-                  >
-                    <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
-                    <span>Conversation Summary</span>
-                    <div className={`w-2 h-2 rounded-full ${
-                      conversationSummary.urgency === 'emergency' ? 'bg-red-400' :
-                      conversationSummary.urgency === 'urgent' ? 'bg-orange-400' : 'bg-green-400'
-                    }`}></div>
-                  </motion.button>
-                )}
-                
-
-              </div>
-
-              {/* Language Selectors */}
-              <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 lg:space-x-8 mb-6 sm:mb-8">
-
-                {/* Source Language */}
-                <div className="text-center w-full sm:w-auto">
-                  <label className="block text-xs sm:text-sm text-white/60 mb-2" id="source-language-label">Speak in:</label>
-                  <select
-                    value={sourceLanguage}
-                    onChange={(e) => setSourceLanguage(e.target.value)}
-                    aria-labelledby="source-language-label"
-                    aria-describedby="source-language-help"
-                    className="w-full max-w-[200px] sm:w-auto bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-6 py-2 sm:py-3 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 text-sm sm:text-base"
-                  >
-                    <option value="en-US" className="bg-gray-800 text-white">English (US)</option>
-                    <option value="es-ES" className="bg-gray-800 text-white">Spanish (España)</option>
-                    <option value="pt-BR" className="bg-gray-800 text-white">Portuguese (Brasil)</option>
-                    <option value="fa-IR" className="bg-gray-800 text-white">Persian (فارسی)</option>
-                    <option value="ar-SA" className="bg-gray-800 text-white">Arabic (العربية)</option>
-                    <option value="zh-CN" className="bg-gray-800 text-white">Chinese (中文)</option>
-                    <option value="fr-FR" className="bg-gray-800 text-white">French (Français)</option>
-                    <option value="de-DE" className="bg-gray-800 text-white">German (Deutsch)</option>
-                  </select>
-                </div>
-
-                {/* Target Language */}
-                <div className="text-center w-full sm:w-auto">
-                  <label className="block text-xs sm:text-sm text-white/60 mb-2" id="target-language-label">Translate to:</label>
-                  <select
-                    value={currentLanguage}
-                    onChange={(e) => setCurrentLanguage(e.target.value)}
-                    aria-labelledby="target-language-label"
-                    aria-describedby="language-help"
-                    {...getAccessibilityProps('language-selector', { currentLanguage })}
-                    className="w-full max-w-[200px] sm:w-auto bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-6 py-2 sm:py-3 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 text-sm sm:text-base"
-                  >
-                    <option value="en" className="bg-gray-800 text-white">English</option>
-                    <option value="es" className="bg-gray-800 text-white">Spanish (Español)</option>
-                    <option value="pt" className="bg-gray-800 text-white">Portuguese (Português)</option>
-                    <option value="fa" className="bg-gray-800 text-white">Persian (فارسی)</option>
-                    <option value="ar" className="bg-gray-800 text-white">Arabic (العربية)</option>
-                    <option value="zh" className="bg-gray-800 text-white">Chinese (中文)</option>
-                    <option value="fr" className="bg-gray-800 text-white">French (Français)</option>
-                    <option value="de" className="bg-gray-800 text-white">German (Deutsch)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Manual Text Input */}
-              <AnimatePresence>
-                {showManualInput && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="mb-6"
-                  >
-                    <div className="flex space-x-2">
-                      <input
-                        type="text"
-                        placeholder="Type your message here..."
-                        value={manualText}
-                        onChange={(e) => setManualText(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleManualTranslation()}
-                        className="flex-1 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:ring-2 focus:ring-purple-500 transition-all duration-200"
-                      />
-                      <button
-                        onClick={handleManualTranslation}
-                        className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl transition-all duration-200"
-                      >
-                        Translate
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Status Indicator */}
-              <div className="text-center space-y-4">
-                <motion.div 
-                  animate={{ scale: isRecording ? [1, 1.05, 1] : 1 }}
-                  transition={{ duration: 1, repeat: isRecording ? Infinity : 0 }}
-                  className="inline-flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-3 bg-white/10 backdrop-blur-sm rounded-full px-4 sm:px-6 py-3 border border-white/20"
-                >
-                  <div className="flex items-center space-x-2">
-                    <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full ${isRecording ? 'bg-red-400 animate-pulse' : 'bg-green-400'}`}></div>
-                    <span className="text-white font-medium text-sm sm:text-base">
-                      {isRecording ? 'Recording...' : 'Ready to translate'}
-                    </span>
-                    {isRecording && <Zap className="w-3 h-3 sm:w-4 sm:h-4 text-yellow-400 animate-pulse" />}
-                  </div>
-                  <span className="text-xs text-white/60">
-                    {sourceLanguage.split('-')[0].toUpperCase()} → {currentLanguage.toUpperCase()}
-                  </span>
-                </motion.div>
-                
-                {/* Translation Quality Indicator */}
-                {translationQuality.totalRatings > 0 && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="inline-flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20"
-                  >
-                    <div className="flex items-center space-x-1">
-                      {[1, 2, 3, 4, 5].map((star) => (
-                        <Star 
-                          key={star}
-                          className={`w-3 h-3 ${
-                            star <= Math.round(translationQuality.averageRating) 
-                              ? 'text-yellow-400' 
-                              : 'text-white/30'
-                          }`}
-                          fill={star <= Math.round(translationQuality.averageRating) ? 'currentColor' : 'none'}
-                        />
-                      ))}
-                    </div>
-                    <span className="text-xs text-white/80">
-                      {translationQuality.averageRating}/5 ({translationQuality.totalRatings} ratings)
-                    </span>
-                    <div className={`w-2 h-2 rounded-full ${
-                      translationQuality.qualityLevel === 'excellent' ? 'bg-green-400' :
-                      translationQuality.qualityLevel === 'good' ? 'bg-blue-400' :
-                      translationQuality.qualityLevel === 'fair' ? 'bg-yellow-400' : 'bg-red-400'
-                    }`}></div>
-                  </motion.div>
-                )}
-              </div>
+              {/* Status Indicator Component */}
+              <StatusIndicator
+                isRecording={isRecording}
+                sourceLanguage={sourceLanguage}
+                currentLanguage={currentLanguage}
+              />
             </motion.div>
           </div>
 
 
         </div>
 
-        {/* Messages */}
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="mt-8"
-        >
-          <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-2xl">
-            <div className="flex items-center space-x-3 mb-6">
-              <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse"></div>
-              <h3 className="text-xl font-semibold text-white">Conversation</h3>
-            </div>
-            
-            <div className="space-y-4 max-h-96 overflow-y-auto custom-scrollbar">
-              {messages.length === 0 ? (
-                <motion.div 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="text-center text-white/60 py-12"
-                >
-                  <div className="relative mb-6">
-                    <Mic className="w-16 h-16 mx-auto text-white/30" />
-                    <motion.div
-                      animate={{ scale: [1, 1.1, 1] }}
-                      transition={{ duration: 2, repeat: Infinity }}
-                      className="absolute inset-0 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full opacity-20 blur-xl"
-                    />
-                  </div>
-                  <p className="text-lg font-medium">Start recording to begin translation</p>
-                  <p className="text-sm mt-2">Click the microphone button above</p>
-                </motion.div>
-              ) : (
-                messages.map((message, index) => (
-                  <motion.div
-                    key={message.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    className={`flex ${message.isDoctor ? 'justify-start' : 'justify-end'}`}
-                  >
-                    <div className={`max-w-xs lg:max-w-md p-4 rounded-2xl backdrop-blur-sm border ${
-                      message.isDoctor 
-                        ? 'bg-blue-500/20 border-blue-400/30 text-white' 
-                        : 'bg-green-500/20 border-green-400/30 text-white'
-                    }`}>
-                      <div className="flex items-center space-x-2 mb-2">
-                        <div className={`w-2 h-2 rounded-full ${
-                          message.isDoctor ? 'bg-blue-400' : 'bg-green-400'
-                        }`}></div>
-                        <span className="text-sm font-medium opacity-80">
-                          {message.isDoctor ? 'Doctor' : 'Patient'}
-                        </span>
-                      </div>
-                      <div className="mb-3 text-sm">{message.text}</div>
-                      <div className="text-sm opacity-75 border-t border-white/20 pt-3 italic">
-                        {message.translatedText}
-                      </div>
-                      <div className="flex items-center justify-between mt-3">
-                        <span className="text-xs opacity-60">
-                          {message.timestamp.toLocaleTimeString()}
-                        </span>
-                        <motion.button
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => playAudio(message.translatedText)}
-                          className="text-xs opacity-60 hover:opacity-100 transition-opacity"
-                        >
-                          <Volume2 className="w-4 h-4" />
-                        </motion.button>
-                      </div>
-                      
-                      {/* Rating System - Only show for translated messages */}
-                      {!message.isDoctor && (
-                        <RatingStars
-                          messageId={message.id}
-                          currentRating={message.rating}
-                          onRate={(rating) => handleRating(message.id, rating)}
-                        />
-                      )}
-                    </div>
-                  </motion.div>
-                ))
-              )}
-            </div>
-            
-            {/* Comprehensive Medical Summary Display */}
-            {medicalExtraction && medicalExtraction.confidence > 0.3 && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mt-6 bg-gradient-to-r from-blue-900/50 to-purple-900/50 backdrop-blur-sm rounded-lg p-4 border border-white/10"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-lg font-semibold text-white">Medical Summary</h3>
-                  <div className="flex items-center space-x-1 ml-2">
-                    <div className={`w-2 h-2 rounded-full ${
-                      aiStatus === 'active' ? 'bg-green-400' : 'bg-gray-400'
-                    }`}></div>
-                    <span className="text-xs text-white/60">
-                      {aiStatus === 'active' ? 'AI' : 'Pattern'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Patient Background (Historical Information) */}
-                {(medicalExtraction.patientBackground?.currentMedications?.length > 0 || 
-                  medicalExtraction.patientBackground?.allergies?.length > 0 || 
-                  medicalExtraction.patientBackground?.pastMedicalHistory?.length > 0 || 
-                  medicalExtraction.patientBackground?.familyHistory?.length > 0 || 
-                  medicalExtraction.patientBackground?.lifestyle?.length > 0 || 
-                  medicalExtraction.patientBackground?.chronicConditions?.length > 0) && (
-                  <div className="mb-4 p-3 bg-green-900/30 rounded-lg border border-green-400/30">
-                    <h4 className="text-sm font-medium text-green-300 mb-2">Patient Background</h4>
-                    <div className="space-y-2 text-xs">
-                      {medicalExtraction.patientBackground.currentMedications.length > 0 && (
-                        <div>
-                          <span className="text-green-200/80">Current Medications:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.patientBackground.currentMedications.map((med, index) => (
-                              <span key={index} className="px-2 py-1 bg-green-500/20 text-green-200 rounded-full border border-green-400/30">
-                                {med}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.patientBackground.allergies.length > 0 && (
-                        <div>
-                          <span className="text-red-200/80">Allergies:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.patientBackground.allergies.map((allergy, index) => (
-                              <span key={index} className="px-2 py-1 bg-red-500/20 text-red-200 rounded-full border border-red-400/30">
-                                {allergy}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.patientBackground.pastMedicalHistory.length > 0 && (
-                        <div>
-                          <span className="text-blue-200/80">Past Medical History:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.patientBackground.pastMedicalHistory.map((history, index) => (
-                              <span key={index} className="px-2 py-1 bg-blue-500/20 text-blue-200 rounded-full border border-blue-400/30">
-                                {history}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.patientBackground.chronicConditions.length > 0 && (
-                        <div>
-                          <span className="text-orange-200/80">Chronic Conditions:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.patientBackground.chronicConditions.map((condition, index) => (
-                              <span key={index} className="px-2 py-1 bg-orange-500/20 text-orange-200 rounded-full border border-orange-400/30">
-                                {condition}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.patientBackground.familyHistory.length > 0 && (
-                        <div>
-                          <span className="text-purple-200/80">Family History:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.patientBackground.familyHistory.map((history, index) => (
-                              <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-200 rounded-full border border-purple-400/30">
-                                {history}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.patientBackground.lifestyle.length > 0 && (
-                        <div>
-                          <span className="text-cyan-200/80">Lifestyle:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.patientBackground.lifestyle.map((lifestyle, index) => (
-                              <span key={index} className="px-2 py-1 bg-cyan-500/20 text-cyan-200 rounded-full border border-cyan-400/30">
-                                {lifestyle}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Current Situation (Presenting Issues) */}
-                {(medicalExtraction.currentSituation?.chiefComplaint || 
-                  medicalExtraction.currentSituation?.presentingSymptoms?.length > 0 || 
-                  medicalExtraction.currentSituation?.acuteIssues?.length > 0 || 
-                  medicalExtraction.currentSituation?.recentChanges?.length > 0 || 
-                  medicalExtraction.currentSituation?.painLevel > 0) && (
-                  <div className="mb-4 p-3 bg-blue-900/30 rounded-lg border border-blue-400/30">
-                    <h4 className="text-sm font-medium text-blue-300 mb-2">Current Situation</h4>
-                    <div className="space-y-2 text-xs">
-                      {medicalExtraction.currentSituation.chiefComplaint && (
-                        <div>
-                          <span className="text-blue-200/80">Chief Complaint:</span>
-                          <span className="text-blue-200 ml-2">{medicalExtraction.currentSituation.chiefComplaint}</span>
-                        </div>
-                      )}
-                      {medicalExtraction.currentSituation.presentingSymptoms.length > 0 && (
-                        <div>
-                          <span className="text-blue-200/80">Presenting Symptoms:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.currentSituation.presentingSymptoms.map((symptom, index) => (
-                              <span key={index} className="px-2 py-1 bg-blue-500/20 text-blue-200 rounded-full border border-blue-400/30">
-                                {symptom}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.currentSituation.acuteIssues.length > 0 && (
-                        <div>
-                          <span className="text-red-200/80">Acute Issues:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.currentSituation.acuteIssues.map((issue, index) => (
-                              <span key={index} className="px-2 py-1 bg-red-500/20 text-red-200 rounded-full border border-red-400/30">
-                                {issue}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.currentSituation.recentChanges.length > 0 && (
-                        <div>
-                          <span className="text-yellow-200/80">Recent Changes:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.currentSituation.recentChanges.map((change, index) => (
-                              <span key={index} className="px-2 py-1 bg-yellow-500/20 text-yellow-200 rounded-full border border-yellow-400/30">
-                                {change}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.currentSituation.painLevel > 0 && (
-                        <div>
-                          <span className="text-orange-200/80">Pain Level:</span>
-                          <div className="flex items-center space-x-3 mt-1">
-                            <div className="flex-1 bg-white/10 rounded-full h-2">
-                              <div 
-                                className="bg-gradient-to-r from-green-400 to-red-500 h-2 rounded-full transition-all duration-300"
-                                style={{ width: `${(medicalExtraction.currentSituation.painLevel / 10) * 100}%` }}
-                              ></div>
-                            </div>
-                            <span className="text-orange-200 font-medium">{medicalExtraction.currentSituation.painLevel}/10</span>
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.currentSituation.symptomDuration && (
-                        <div>
-                          <span className="text-blue-200/80">Duration:</span>
-                          <span className="text-blue-200 ml-2">{medicalExtraction.currentSituation.symptomDuration}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Ongoing Care (Current Treatments & Monitoring) */}
-                {(medicalExtraction.ongoingCare.activeTreatments.length > 0 || 
-                  medicalExtraction.ongoingCare.medications.length > 0 || 
-                  medicalExtraction.ongoingCare.recentDiagnoses.length > 0 || 
-                  medicalExtraction.ongoingCare.monitoring.length > 0 || 
-                  Object.values(medicalExtraction.ongoingCare.vitalSigns).some(value => value)) && (
-                  <div className="mb-4 p-3 bg-purple-900/30 rounded-lg border border-purple-400/30">
-                    <h4 className="text-sm font-medium text-purple-300 mb-2">Ongoing Care</h4>
-                    <div className="space-y-2 text-xs">
-                      {medicalExtraction.ongoingCare.activeTreatments.length > 0 && (
-                        <div>
-                          <span className="text-purple-200/80">Active Treatments:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.ongoingCare.activeTreatments.map((treatment, index) => (
-                              <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-200 rounded-full border border-purple-400/30">
-                                {treatment}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.ongoingCare.medications.length > 0 && (
-                        <div>
-                          <span className="text-purple-200/80">Medications:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.ongoingCare.medications.map((medication, index) => (
-                              <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-200 rounded-full border border-purple-400/30">
-                                {medication}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.ongoingCare.recentDiagnoses.length > 0 && (
-                        <div>
-                          <span className="text-purple-200/80">Recent Diagnoses:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.ongoingCare.recentDiagnoses.map((diagnosis, index) => (
-                              <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-200 rounded-full border border-purple-400/30">
-                                {diagnosis}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.ongoingCare.monitoring.length > 0 && (
-                        <div>
-                          <span className="text-purple-200/80">Monitoring:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.ongoingCare.monitoring.map((monitor, index) => (
-                              <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-200 rounded-full border border-purple-400/30">
-                                {monitor}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {Object.values(medicalExtraction.ongoingCare.vitalSigns).some(value => value) && (
-                        <div>
-                          <span className="text-purple-200/80">Vital Signs:</span>
-                          <div className="grid grid-cols-2 gap-2 mt-1">
-                            {medicalExtraction.ongoingCare.vitalSigns.bloodPressure && (
-                              <div className="flex justify-between">
-                                <span className="text-purple-200/60">BP:</span>
-                                <span className="text-purple-200">{medicalExtraction.ongoingCare.vitalSigns.bloodPressure}</span>
-                              </div>
-                            )}
-                            {medicalExtraction.ongoingCare.vitalSigns.temperature && (
-                              <div className="flex justify-between">
-                                <span className="text-purple-200/60">Temp:</span>
-                                <span className="text-purple-200">{medicalExtraction.ongoingCare.vitalSigns.temperature}</span>
-                              </div>
-                            )}
-                            {medicalExtraction.ongoingCare.vitalSigns.heartRate && (
-                              <div className="flex justify-between">
-                                <span className="text-purple-200/60">HR:</span>
-                                <span className="text-purple-200">{medicalExtraction.ongoingCare.vitalSigns.heartRate}</span>
-                              </div>
-                            )}
-                            {medicalExtraction.ongoingCare.vitalSigns.weight && (
-                              <div className="flex justify-between">
-                                <span className="text-purple-200/60">Weight:</span>
-                                <span className="text-purple-200">{medicalExtraction.ongoingCare.vitalSigns.weight}</span>
-                              </div>
-                            )}
-                            {medicalExtraction.ongoingCare.vitalSigns.height && (
-                              <div className="flex justify-between">
-                                <span className="text-purple-200/60">Height:</span>
-                                <span className="text-purple-200">{medicalExtraction.ongoingCare.vitalSigns.height}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Assessment & Plan (Doctor's Findings & Recommendations) */}
-                {(medicalExtraction.assessmentAndPlan.diagnosis.length > 0 || 
-                  medicalExtraction.assessmentAndPlan.differentialDiagnosis.length > 0 || 
-                  medicalExtraction.assessmentAndPlan.treatmentPlan.length > 0 || 
-                  medicalExtraction.assessmentAndPlan.medicationsPrescribed.length > 0 || 
-                  medicalExtraction.assessmentAndPlan.recommendations.length > 0 || 
-                  medicalExtraction.assessmentAndPlan.followUp.length > 0 || 
-                  medicalExtraction.assessmentAndPlan.patientInstructions.length > 0) && (
-                  <div className="mb-4 p-3 bg-orange-900/30 rounded-lg border border-orange-400/30">
-                    <h4 className="text-sm font-medium text-orange-300 mb-2">Assessment & Plan</h4>
-                    <div className="space-y-2 text-xs">
-                      {medicalExtraction.assessmentAndPlan.diagnosis.length > 0 && (
-                        <div>
-                          <span className="text-orange-200/80">Diagnosis:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.assessmentAndPlan.diagnosis.map((diagnosis, index) => (
-                              <span key={index} className="px-2 py-1 bg-orange-500/20 text-orange-200 rounded-full border border-orange-400/30">
-                                {diagnosis}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.assessmentAndPlan.differentialDiagnosis.length > 0 && (
-                        <div>
-                          <span className="text-orange-200/80">Differential Diagnosis:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.assessmentAndPlan.differentialDiagnosis.map((diagnosis, index) => (
-                              <span key={index} className="px-2 py-1 bg-orange-500/20 text-orange-200 rounded-full border border-orange-400/30">
-                                {diagnosis}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.assessmentAndPlan.treatmentPlan.length > 0 && (
-                        <div>
-                          <span className="text-orange-200/80">Treatment Plan:</span>
-                          <ul className="mt-1 space-y-1">
-                            {medicalExtraction.assessmentAndPlan.treatmentPlan.map((treatment, index) => (
-                              <li key={index} className="text-orange-200 flex items-start space-x-2">
-                                <span className="text-orange-400 mt-1">•</span>
-                                <span>{treatment}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {medicalExtraction.assessmentAndPlan.medicationsPrescribed.length > 0 && (
-                        <div>
-                          <span className="text-orange-200/80">Medications Prescribed:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {medicalExtraction.assessmentAndPlan.medicationsPrescribed.map((medication, index) => (
-                              <span key={index} className="px-2 py-1 bg-orange-500/20 text-orange-200 rounded-full border border-orange-400/30">
-                                {medication}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {medicalExtraction.assessmentAndPlan.recommendations.length > 0 && (
-                        <div>
-                          <span className="text-orange-200/80">Recommendations:</span>
-                          <ul className="mt-1 space-y-1">
-                            {medicalExtraction.assessmentAndPlan.recommendations.map((rec, index) => (
-                              <li key={index} className="text-orange-200 flex items-start space-x-2">
-                                <span className="text-orange-400 mt-1">•</span>
-                                <span>{rec}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {medicalExtraction.assessmentAndPlan.followUp.length > 0 && (
-                        <div>
-                          <span className="text-orange-200/80">Follow-up:</span>
-                          <ul className="mt-1 space-y-1">
-                            {medicalExtraction.assessmentAndPlan.followUp.map((followUp, index) => (
-                              <li key={index} className="text-orange-200 flex items-start space-x-2">
-                                <span className="text-orange-400 mt-1">•</span>
-                                <span>{followUp}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {medicalExtraction.assessmentAndPlan.patientInstructions.length > 0 && (
-                        <div>
-                          <span className="text-orange-200/80">Patient Instructions:</span>
-                          <ul className="mt-1 space-y-1">
-                            {medicalExtraction.assessmentAndPlan.patientInstructions.map((instruction, index) => (
-                              <li key={index} className="text-orange-200 flex items-start space-x-2">
-                                <span className="text-orange-400 mt-1">•</span>
-                                <span>{instruction}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {(medicalExtraction.assessmentAndPlan.severity || medicalExtraction.assessmentAndPlan.urgency) && (
-                        <div className="flex items-center space-x-4">
-                          {medicalExtraction.assessmentAndPlan.severity && (
-                            <div className="flex items-center space-x-2">
-                              <span className="text-orange-200/80">Severity:</span>
-                              <div className={`w-3 h-3 rounded-full ${
-                                medicalExtraction.assessmentAndPlan.severity === 'critical' ? 'bg-red-400' :
-                                medicalExtraction.assessmentAndPlan.severity === 'high' ? 'bg-orange-400' :
-                                medicalExtraction.assessmentAndPlan.severity === 'medium' ? 'bg-yellow-400' : 'bg-green-400'
-                              }`}></div>
-                              <span className="text-orange-200 capitalize">{medicalExtraction.assessmentAndPlan.severity}</span>
-                            </div>
-                          )}
-                          {medicalExtraction.assessmentAndPlan.urgency && (
-                            <div className="flex items-center space-x-2">
-                              <span className="text-orange-200/80">Urgency:</span>
-                              <div className={`w-3 h-3 rounded-full ${
-                                medicalExtraction.assessmentAndPlan.urgency === 'emergency' ? 'bg-red-400' :
-                                medicalExtraction.assessmentAndPlan.urgency === 'urgent' ? 'bg-orange-400' : 'bg-green-400'
-                              }`}></div>
-                              <span className="text-orange-200 capitalize">{medicalExtraction.assessmentAndPlan.urgency}</span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-
-              </motion.div>
-            )}
-
-            {/* Medical Summary Display */}
-            {showMedicalSummary && medicalExtraction && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mt-6"
-              >
-                <MedicalSummary extraction={medicalExtraction} />
-              </motion.div>
-            )}
-
-            {/* Conversation Summary Display */}
-            {showConversationSummary && conversationSummary && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mt-6"
-              >
-                <div className="bg-gradient-to-r from-green-900/50 to-emerald-900/50 backdrop-blur-sm rounded-lg p-4 border border-green-400/20">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-white">Real-time Conversation Summary</h3>
-                    <div className="flex items-center space-x-2">
-                      <div className={`w-3 h-3 rounded-full ${
-                        conversationSummary.urgency === 'emergency' ? 'bg-red-400' :
-                        conversationSummary.urgency === 'urgent' ? 'bg-orange-400' : 'bg-green-400'
-                      }`}></div>
-                      <span className="text-xs text-white/60 capitalize">{conversationSummary.urgency}</span>
-                      <span className="text-xs text-white/40">
-                        {Math.round(conversationSummary.confidence * 100)}% confidence
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Key Points */}
-                    {conversationSummary.keyPoints.length > 0 && (
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-medium text-green-300">Key Points</h4>
-                        <ul className="space-y-1">
-                          {conversationSummary.keyPoints.map((point, index) => (
-                            <li key={index} className="text-green-200 text-sm flex items-start space-x-2">
-                              <span className="text-green-400 mt-1">•</span>
-                              <span>{point}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Medical Findings */}
-                    {conversationSummary.medicalFindings.length > 0 && (
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-medium text-blue-300">Medical Findings</h4>
-                        <ul className="space-y-1">
-                          {conversationSummary.medicalFindings.map((finding, index) => (
-                            <li key={index} className="text-blue-200 text-sm flex items-start space-x-2">
-                              <span className="text-blue-400 mt-1">•</span>
-                              <span>{finding}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Recommendations */}
-                    {conversationSummary.recommendations.length > 0 && (
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-medium text-purple-300">Recommendations</h4>
-                        <ul className="space-y-1">
-                          {conversationSummary.recommendations.map((rec, index) => (
-                            <li key={index} className="text-purple-200 text-sm flex items-start space-x-2">
-                              <span className="text-purple-400 mt-1">•</span>
-                              <span>{rec}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Next Steps */}
-                    {conversationSummary.nextSteps.length > 0 && (
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-medium text-orange-300">Next Steps</h4>
-                        <ul className="space-y-1">
-                          {conversationSummary.nextSteps.map((step, index) => (
-                            <li key={index} className="text-orange-200 text-sm flex items-start space-x-2">
-                              <span className="text-orange-400 mt-1">•</span>
-                              <span>{step}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-
-                  {conversationSummary.lastUpdated && (
-                    <div className="mt-4 pt-3 border-t border-green-400/20 text-xs text-green-200/60">
-                      Last updated: {conversationSummary.lastUpdated.toLocaleTimeString()}
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-            
-            {/* Quick Rating Prompt */}
-            {showRatingPrompt && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mt-4 p-4 bg-gradient-to-r from-purple-500/20 to-blue-500/20 rounded-lg border border-purple-400/30"
-              >
-                <div className="text-center">
-                  <p className="text-white font-medium mb-3">How was this translation?</p>
-                  <div className="flex justify-center space-x-2">
-                    {[1, 2, 3, 4, 5].map((rating) => (
-                      <motion.button
-                        key={rating}
-                        onClick={() => handleRating(showRatingPrompt, rating)}
-                        className="bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg p-2 transition-all duration-200"
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                      >
-                        <Star className="w-6 h-6 text-yellow-400" fill="currentColor" />
-                        <span className="block text-xs text-white mt-1">{rating}</span>
-                      </motion.button>
-                    ))}
-                  </div>
-                  <button
-                    onClick={() => setShowRatingPrompt(null)}
-                    className="text-white/60 hover:text-white text-sm mt-3 underline"
-                  >
-                    Skip rating
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Sliding Settings Panel */}
-      <motion.div
-        initial={{ x: '100%' }}
-        animate={{ x: showSettings ? 0 : '100%' }}
-        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="fixed top-0 right-0 h-full w-full md:w-96 bg-slate-900/95 backdrop-blur-md border-l border-white/20 shadow-2xl z-50 overflow-y-auto"
-      >
-        {/* Settings Header */}
-        <div className="sticky top-0 bg-slate-900/95 backdrop-blur-md border-b border-white/20 p-6">
-          <div className="flex justify-between items-center">
-            <h2 className="text-2xl font-bold text-white">Settings</h2>
-            <motion.button
-              onClick={() => setShowSettings(false)}
-              className="text-white/60 hover:text-white transition-colors"
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              aria-label="Close settings"
-            >
-              <X className="w-6 h-6" />
-            </motion.button>
-          </div>
-        </div>
-
-        {/* Settings Content */}
-        <div className="p-6 space-y-8">
-          {/* Translation Provider */}
-          <div className="space-y-4">
-            <h3 className="text-xl font-semibold text-white mb-4">Translation Provider</h3>
-            <select
-              value={selectedProvider}
-              onChange={(e) => setSelectedProvider(e.target.value)}
-              className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
-            >
-              {providers.map(provider => (
-                <option key={provider.id} value={provider.id} className="bg-gray-800 text-white">
-                  {provider.name} ({provider.type})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* API Key Management - Only show for cloud providers */}
-          {isCloudProvider(selectedProvider) && (
-            <div className="space-y-4">
-              <h3 className="text-xl font-semibold text-white mb-4">API Key Management</h3>
-              
-              {/* API Key Selection Dropdown */}
-              <div className="relative">
-                <label className="block text-sm text-white/60 mb-2">Select API Key:</label>
-                <div className="relative">
-                  <button
-                    onClick={() => setShowApiKeyDropdown(!showApiKeyDropdown)}
-                    className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 flex items-center justify-between"
-                  >
-                    <span className={selectedApiKey ? 'text-white' : 'text-white/50'}>
-                      {selectedApiKey || 'Select an API key'}
-                    </span>
-                    <motion.div
-                      animate={{ rotate: showApiKeyDropdown ? 180 : 0 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <X className="w-4 h-4" />
-                    </motion.div>
-                  </button>
-                  
-                  {/* Dropdown Menu */}
-                  {showApiKeyDropdown && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto"
-                    >
-                      {/* Add New API Key Option */}
-                      <button
-                        onClick={() => {
-                          setShowApiKeyDropdown(false)
-                          setShowApiKeyInput(true)
-                          setNewApiKeyName('')
-                          setNewApiKey('')
-                        }}
-                        className="w-full px-4 py-3 text-left text-green-400 hover:bg-white/10 border-b border-white/10 flex items-center space-x-2"
-                      >
-                        <span className="text-lg">+</span>
-                        <span>Add New API Key</span>
-                      </button>
-                      
-                      {/* Existing API Keys */}
-                      {getApiKeyNamesForProvider(selectedProvider).map((name) => (
-                        <div key={name} className="flex items-center justify-between px-4 py-3 hover:bg-white/10 border-b border-white/10 last:border-b-0">
-                          <button
-                            onClick={() => {
-                              setSelectedApiKey(name)
-                              setShowApiKeyDropdown(false)
-                            }}
-                            className={`flex-1 text-left ${selectedApiKey === name ? 'text-purple-400' : 'text-white'}`}
-                          >
-                            {name}
-                          </button>
-                          <div className="flex items-center space-x-2">
-                            <motion.button
-                              onClick={() => editApiKey(name)}
-                              className="text-blue-400 hover:text-blue-300 transition-colors p-1"
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                            >
-                              <Settings className="w-3 h-3" />
-                            </motion.button>
-                            <motion.button
-                              onClick={() => deleteApiKey(name)}
-                              className="text-red-400 hover:text-red-300 transition-colors p-1"
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </motion.button>
-                          </div>
-                        </div>
-                      ))}
-                      
-                      {getApiKeyNamesForProvider(selectedProvider).length === 0 && (
-                        <div className="px-4 py-3 text-white/60 text-center">
-                          No API keys saved for this provider
-                        </div>
-                      )}
-                    </motion.div>
-                  )}
-                </div>
-              </div>
-
-              {/* Add/Edit API Key Form */}
-              {showApiKeyInput && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="space-y-3 bg-white/5 rounded-lg p-4 border border-white/10"
-                >
-                  <h4 className="text-lg font-medium text-white">
-                    {newApiKeyName ? 'Edit API Key' : 'Add New API Key'}
-                  </h4>
-                  
-                  <input
-                    type="text"
-                    placeholder="API Key Name"
-                    value={newApiKeyName}
-                    onChange={(e) => setNewApiKeyName(e.target.value)}
-                    className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
-                  />
-                  
-                  <input
-                    type="password"
-                    placeholder="API Key"
-                    value={newApiKey}
-                    onChange={(e) => setNewApiKey(e.target.value)}
-                    className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
-                  />
-                  
-                  <div className="flex space-x-3">
-                    <motion.button
-                      onClick={async () => {
-                        if (newApiKeyName && newApiKey) {
-                          await saveApiKeyToStorage(newApiKeyName, newApiKey)
-                        } else {
-                          toast.error('Please enter both name and API key')
-                        }
-                      }}
-                      className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 px-6 rounded-lg transition-all duration-200"
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                    >
-                      {newApiKeyName ? 'Update' : 'Save'} API Key
-                    </motion.button>
-                    
-                    <motion.button
-                      onClick={() => {
-                        setShowApiKeyInput(false)
-                        setNewApiKeyName('')
-                        setNewApiKey('')
-                      }}
-                      className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all duration-200"
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                    >
-                      Cancel
-                    </motion.button>
-                  </div>
-                </motion.div>
-              )}
-            </div>
-          )}
-
-          {/* Provider Status */}
-          <div className="space-y-4">
-            <h3 className="text-xl font-semibold text-white mb-4">Provider Status & Limits</h3>
-            <div className="space-y-3">
-              {providers.map(provider => (
-                <div key={provider.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    {provider.type === 'cloud' ? (
-                      <Wifi className="w-4 h-4 text-blue-400" />
-                    ) : provider.type === 'api' ? (
-                      <Globe className="w-4 h-4 text-purple-400" />
-                    ) : (
-                      <Shield className="w-4 h-4 text-green-400" />
-                    )}
-                    <div>
-                      <span className="text-white text-sm">{provider.name}</span>
-                      <div className="text-xs text-white/60">
-                        {provider.id === 'mymemory' && '100 requests/day'}
-                        {provider.id === 'openai' && '3,500 req/min'}
-                        {provider.id === 'google' && '100 req/100s'}
-                        {provider.id === 'deepl' && '500K chars/month'}
-                      </div>
-                    </div>
-                  </div>
-                  <div className={`w-3 h-3 rounded-full ${
-                    provider.status === 'available' ? 'bg-green-400' : 'bg-red-400'
-                  }`}></div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Privacy & Security Settings */}
-          <div className="space-y-4">
-            <h3 className="text-xl font-semibold text-white mb-4">Privacy & Security</h3>
-            
-            {/* HIPAA Compliance Status */}
-            <div className="bg-white/5 rounded-lg p-4">
-              <h4 className="text-lg font-medium text-white mb-2">HIPAA Compliance</h4>
-              <div className="space-y-2 text-sm text-white/80">
-                <div className="flex justify-between">
-                  <span>Data Anonymization:</span>
-                  <span className={hipaaCompliance.getComplianceStatus().piiProtection ? "text-green-400" : "text-red-400"}>
-                    {hipaaCompliance.getComplianceStatus().piiProtection ? "✓ Enabled" : "✗ Disabled"}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Audit Logging:</span>
-                  <span className={hipaaCompliance.getComplianceStatus().auditLogging ? "text-green-400" : "text-red-400"}>
-                    {hipaaCompliance.getComplianceStatus().auditLogging ? "✓ Active" : "✗ Inactive"}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Consent Management:</span>
-                  <span className={hipaaCompliance.getComplianceStatus().consentGiven ? "text-green-400" : "text-red-400"}>
-                    {hipaaCompliance.getComplianceStatus().consentGiven ? "✓ Configured" : "✗ Not Configured"}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Medical Data Encryption:</span>
-                  <span className={hipaaCompliance.getComplianceStatus().encryptionEnabled ? "text-green-400" : "text-red-400"}>
-                    {hipaaCompliance.getComplianceStatus().encryptionEnabled ? "✓ AES-256-GCM" : "✗ Disabled"}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Breach Detection:</span>
-                  <span className={hipaaCompliance.getComplianceStatus().breachDetection ? "text-green-400" : "text-red-400"}>
-                    {hipaaCompliance.getComplianceStatus().breachDetection ? "✓ Active" : "✗ Inactive"}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Data Retention:</span>
-                  <span className={hipaaCompliance.getComplianceStatus().dataRetention ? "text-green-400" : "text-red-400"}>
-                    {hipaaCompliance.getComplianceStatus().dataRetention ? "✓ 7 days" : "✗ Disabled"}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Security Breaches:</span>
-                  <span className={hipaaCompliance.getComplianceStatus().securityBreaches === 0 ? "text-green-400" : "text-red-400"}>
-                    {hipaaCompliance.getComplianceStatus().securityBreaches} detected
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Security Status */}
-            <div className="bg-white/5 rounded-lg p-4">
-              <h4 className="text-lg font-medium text-white mb-2">Security Status</h4>
-              <div className="space-y-2 text-sm text-white/80">
-                <div className="flex justify-between">
-                  <span>Input Sanitization:</span>
-                  <span className="text-green-400">✓ Active</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>XSS Protection:</span>
-                  <span className="text-green-400">✓ Enabled</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>API Key Encryption:</span>
-                  <span className="text-green-400">✓ AES-256</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Secure Storage:</span>
-                  <span className="text-green-400">✓ IndexedDB</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Translation Quality Analytics */}
-            <div className="space-y-3">
-              <h4 className="text-lg font-medium text-white">Translation Quality</h4>
-              <div className="bg-white/5 rounded-lg p-4">
-                <div className="space-y-2 text-sm text-white/80">
-                  <div className="flex justify-between">
-                    <span>Average Rating:</span>
-                    <span className="text-white font-medium">
-                      {translationQuality.averageRating}/5
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Total Ratings:</span>
-                    <span className="text-white font-medium">
-                      {translationQuality.totalRatings}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Quality Level:</span>
-                    <span className={`font-medium ${
-                      translationQuality.qualityLevel === 'excellent' ? 'text-green-400' :
-                      translationQuality.qualityLevel === 'good' ? 'text-blue-400' :
-                      translationQuality.qualityLevel === 'fair' ? 'text-yellow-400' : 'text-red-400'
-                    }`}>
-                      {translationQuality.qualityLevel.charAt(0).toUpperCase() + translationQuality.qualityLevel.slice(1)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Medical Extraction Analytics */}
-            {medicalExtraction && medicalExtraction.confidence > 0.3 && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-lg font-medium text-white">Medical Extraction</h4>
-                  <div className="flex items-center space-x-2">
-                    <div className={`w-2 h-2 rounded-full ${
-                      aiStatus === 'active' ? 'bg-green-400' : 'bg-gray-400'
-                    }`}></div>
-                    <span className="text-xs text-white/60">
-                      {aiStatus === 'active' ? 'AI-Powered' : 'Pattern-Based'}
-                    </span>
-                  </div>
-                </div>
-                <div className="bg-white/5 rounded-lg p-4">
-                  <div className="space-y-2 text-sm text-white/80">
-                    <div className="flex justify-between">
-                      <span>Extraction Confidence:</span>
-                      <span className={`font-medium ${
-                        medicalExtraction.confidence >= 0.7 ? 'text-green-400' :
-                        medicalExtraction.confidence >= 0.4 ? 'text-yellow-400' : 'text-red-400'
-                      }`}>
-                        {Math.round(medicalExtraction.confidence * 100)}%
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Pain Level:</span>
-                      <span className="text-white font-medium">
-                        {medicalExtraction.painLevel}/10
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Symptoms Detected:</span>
-                      <span className="text-white font-medium">
-                        {medicalExtraction.symptoms.length}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Medications Found:</span>
-                      <span className="text-white font-medium">
-                        {medicalExtraction.medications.length}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Severity Level:</span>
-                      <span className={`font-medium capitalize ${
-                        medicalExtraction.severity === 'high' ? 'text-red-400' :
-                        medicalExtraction.severity === 'medium' ? 'text-yellow-400' : 'text-green-400'
-                      }`}>
-                        {medicalExtraction.severity}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Privacy Controls */}
-            <div className="space-y-3">
-              <h4 className="text-lg font-medium text-white">Privacy Controls</h4>
-              <div className="space-y-2">
-                <label className="flex items-center space-x-3">
-                  <input
-                    type="checkbox"
-                    checked={hipaaCompliance.getConsent().dataCollection}
-                    onChange={(e) => hipaaCompliance.updateConsent({ dataCollection: e.target.checked })}
-                    className="rounded border-white/20 bg-white/10 text-purple-600 focus:ring-purple-500"
-                  />
-                  <span className="text-white text-sm">Allow data collection for improvement</span>
-                </label>
-                <label className="flex items-center space-x-3">
-                  <input
-                    type="checkbox"
-                    checked={hipaaCompliance.getConsent().auditLogging}
-                    onChange={(e) => hipaaCompliance.updateConsent({ auditLogging: e.target.checked })}
-                    className="rounded border-white/20 bg-white/10 text-purple-600 focus:ring-purple-500"
-                  />
-                  <span className="text-white text-sm">Enable audit logging</span>
-                </label>
-                <label className="flex items-center space-x-3">
-                  <input
-                    type="checkbox"
-                    checked={hipaaCompliance.getConsent().conversationStorage}
-                    onChange={(e) => hipaaCompliance.updateConsent({ conversationStorage: e.target.checked })}
-                    className="rounded border-white/20 bg-white/10 text-purple-600 focus:ring-purple-500"
-                  />
-                  <span className="text-white text-sm">Store conversation history</span>
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Backdrop for mobile */}
-      {showSettings && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={() => setShowSettings(false)}
-          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+       {/* Conversation Display Component */}
+       <ConversationDisplay
+          messages={messages}
+          playAudio={playAudio}
+          handleRating={handleRating}
         />
-      )}
 
-      {/* Save Dialog */}
-      {showSaveDialog && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          onClick={() => setShowSaveDialog(false)}
-        >
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-6 max-w-md w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-xl font-bold text-white mb-4">Save Case</h3>
-            
-            {saveMode === 'new' ? (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-white text-sm font-medium mb-2">File Name</label>
-                  <input
-                    type="text"
-                    value={newFileName}
-                    onChange={(e) => setNewFileName(e.target.value)}
-                    placeholder="Enter case name..."
-                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-                <div className="flex space-x-3">
-                  <button
-                    onClick={() => saveCurrentCase(newFileName)}
-                    disabled={!newFileName.trim()}
-                    className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    Save New
-                  </button>
-                  <button
-                    onClick={() => setSaveMode('existing')}
-                    className="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    Save to Existing
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-white text-sm font-medium mb-2">Select Case to Overwrite</label>
-                  <select
-                    value={selectedFileToOverwrite}
-                    onChange={(e) => setSelectedFileToOverwrite(e.target.value)}
-                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    style={{ color: 'white' }}
-                  >
-                    <option value="" style={{ backgroundColor: '#1f2937', color: 'white' }}>Select a case...</option>
-                    {savedCases.map((case_) => (
-                      <option key={case_.id} value={case_.id} style={{ backgroundColor: '#1f2937', color: 'white' }}>
-                        {case_.name} - {new Date(case_.timestamp).toLocaleString()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex space-x-3">
-                  <button
-                    onClick={() => saveCurrentCase('', selectedFileToOverwrite)}
-                    disabled={!selectedFileToOverwrite}
-                    className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    Overwrite
-                  </button>
-                  <button
-                    onClick={() => setSaveMode('new')}
-                    className="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    Save New Instead
-                  </button>
-                </div>
-              </div>
-            )}
-            
-            <button
-              onClick={() => {
-                setShowSaveDialog(false)
-                setSaveMode('new')
-                setNewFileName('')
-                setSelectedFileToOverwrite('')
-              }}
-              className="absolute top-4 right-4 text-white/70 hover:text-white"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </motion.div>
-        </motion.div>
-      )}
-
-      {/* Load Dialog */}
-      {showLoadDialog && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          onClick={() => setShowLoadDialog(false)}
-        >
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-6 max-w-md w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-xl font-bold text-white mb-4">Load Case</h3>
-            
-            {savedCases.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-white/70 mb-4">No saved cases found.</p>
-                <button
-                  onClick={() => setShowLoadDialog(false)}
-                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors"
-                >
-                  Close
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-white text-sm font-medium mb-2">Select Case to Load</label>
-                  <select
-                    value={selectedFileToLoad}
-                    onChange={(e) => setSelectedFileToLoad(e.target.value)}
-                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    style={{ color: 'white' }}
-                  >
-                    <option value="" style={{ backgroundColor: '#1f2937', color: 'white' }}>Select a case...</option>
-                    {savedCases.map((case_) => (
-                      <option key={case_.id} value={case_.id} style={{ backgroundColor: '#1f2937', color: 'white' }}>
-                        {case_.name} - {new Date(case_.timestamp).toLocaleString()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex space-x-3">
-                  <button
-                    onClick={() => loadCase(selectedFileToLoad)}
-                    disabled={!selectedFileToLoad}
-                    className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    Load Case
-                  </button>
-                  <button
-                    onClick={() => setShowLoadDialog(false)}
-                    className="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-            
-            <button
-              onClick={() => setShowLoadDialog(false)}
-              className="absolute top-4 right-4 text-white/70 hover:text-white"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </motion.div>
-        </motion.div>
-      )}
-
-      {/* Delete Dialog */}
-      {showDeleteDialog && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          onClick={() => setShowDeleteDialog(false)}
-        >
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-6 max-w-md w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-xl font-bold text-white mb-4">Delete Case</h3>
-            
-            {savedCases.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-white/70 mb-4">No saved cases to delete.</p>
-                <button
-                  onClick={() => setShowDeleteDialog(false)}
-                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors"
-                >
-                  Close
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-white text-sm font-medium mb-2">Select Case to Delete</label>
-                  <select
-                    value={selectedFileToDelete}
-                    onChange={(e) => setSelectedFileToDelete(e.target.value)}
-                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    style={{ color: 'white' }}
-                  >
-                    <option value="" style={{ backgroundColor: '#1f2937', color: 'white' }}>Select a case...</option>
-                    {savedCases.map((case_) => (
-                      <option key={case_.id} value={case_.id} style={{ backgroundColor: '#1f2937', color: 'white' }}>
-                        {case_.name} - {new Date(case_.timestamp).toLocaleString()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex space-x-3">
-                  <button
-                    onClick={() => {
-                      if (window.confirm('Are you sure you want to delete this case? This action cannot be undone.')) {
-                        deleteCase(selectedFileToDelete)
-                      }
-                    }}
-                    disabled={!selectedFileToDelete}
-                    className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    Delete
-                  </button>
-                  <button
-                    onClick={() => setShowDeleteDialog(false)}
-                    className="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-            
-            <button
-              onClick={() => setShowDeleteDialog(false)}
-              className="absolute top-4 right-4 text-white/70 hover:text-white"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </motion.div>
-        </motion.div>
-      )}
-
-      {/* Medical Summary Modal */}
-      {showMedicalSummaryModal && medicalExtraction && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          onClick={() => setShowMedicalSummaryModal(false)}
-        >
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-6 max-w-2xl w-full max-h-[80vh] overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-white flex items-center space-x-2">
-                <Stethoscope className="w-5 h-5 text-blue-400" />
-                <span>Medical Summary</span>
-                <div className={`w-3 h-3 rounded-full ${
-                  medicalExtraction.severity === 'high' ? 'bg-red-400' :
-                  medicalExtraction.severity === 'medium' ? 'bg-yellow-400' : 'bg-green-400'
-                }`}></div>
-              </h3>
-              <button
-                onClick={() => setShowMedicalSummaryModal(false)}
-                className="text-white/70 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
+       {/* Live Medical Summary */}
+       {medicalExtraction && medicalExtraction.confidence > 0.3 && (
+         <motion.div 
+           initial={{ opacity: 0, y: 20 }}
+           animate={{ opacity: 1, y: 0 }}
+           transition={{ delay: 0.3 }}
+           className="mt-8"
+         >
+           <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-2xl">
+             <div className="flex items-center space-x-3 mb-6">
+               <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+               <h3 className="text-xl font-semibold text-white">Live Medical Summary</h3>
+               <div className="flex items-center space-x-2 ml-auto">
+                 <div className={`w-3 h-3 rounded-full ${
+                   medicalExtraction.severity === 'high' ? 'bg-red-400' :
+                   medicalExtraction.severity === 'medium' ? 'bg-yellow-400' : 'bg-green-400'
+                 }`}></div>
+                 <span className="text-xs text-white/60 capitalize">{medicalExtraction.severity} severity</span>
+                 <div className="flex items-center space-x-1 ml-2">
+                   <div className={`w-2 h-2 rounded-full ${
+                     aiStatus === 'active' ? 'bg-green-400' : 'bg-gray-400'
+                   }`}></div>
+                   <span className="text-xs text-white/60">
+                     {aiStatus === 'active' ? 'AI' : 'Pattern'}
+                   </span>
+                 </div>
+               </div>
+             </div>
+             
+             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+               {/* Pain Level */}
+               {medicalExtraction.painLevel > 0 && (
+                 <div className="space-y-2">
+                   <h4 className="text-sm font-medium text-white">Pain Level</h4>
+                   <div className="flex items-center space-x-3">
+                     <div className="flex-1 bg-white/10 rounded-full h-2">
+                       <div 
+                         className={`h-2 rounded-full transition-all duration-300 ${
+                           medicalExtraction.painLevel <= 3 ? 'bg-green-400' :
+                           medicalExtraction.painLevel <= 6 ? 'bg-yellow-400' : 'bg-red-400'
+                         }`}
+                         style={{ width: `${(medicalExtraction.painLevel / 10) * 100}%` }}
+                       ></div>
+                     </div>
+                     <span className="text-sm text-white font-medium">{medicalExtraction.painLevel}/10</span>
+                   </div>
+                 </div>
+               )}
+               
+               {/* Symptoms */}
+               {medicalExtraction.symptoms.length > 0 && (
+                 <div className="space-y-2">
+                   <h4 className="text-sm font-medium text-white">Symptoms</h4>
+                   <div className="flex flex-wrap gap-2">
+                     {medicalExtraction.symptoms.slice(0, 5).map((symptom, index) => (
+                       <span key={index} className="px-2 py-1 bg-blue-500/20 text-blue-200 text-xs rounded-full border border-blue-400/30">
+                         {symptom}
+                       </span>
+                     ))}
+                     {medicalExtraction.symptoms.length > 5 && (
+                       <span className="px-2 py-1 bg-blue-500/20 text-blue-200 text-xs rounded-full border border-blue-400/30">
+                         +{medicalExtraction.symptoms.length - 5} more
+                       </span>
+                     )}
+                   </div>
+                 </div>
+               )}
+               
+               {/* Medications */}
+               {medicalExtraction.medications.length > 0 && (
+                 <div className="space-y-2">
+                   <h4 className="text-sm font-medium text-white">Medications</h4>
+                   <div className="flex flex-wrap gap-2">
+                     {medicalExtraction.medications.slice(0, 3).map((medication, index) => (
+                       <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-200 text-xs rounded-full border border-purple-400/30">
+                         {medication}
+                       </span>
+                     ))}
+                     {medicalExtraction.medications.length > 3 && (
+                       <span className="px-2 py-1 bg-purple-500/20 text-purple-200 text-xs rounded-full border border-purple-400/30">
+                         +{medicalExtraction.medications.length - 3} more
+                       </span>
+                     )}
+                   </div>
+                 </div>
+               )}
+               
+               {/* Recommendations */}
+               {medicalExtraction.recommendations.length > 0 && (
+                 <div className="space-y-2">
+                   <h4 className="text-sm font-medium text-white">Recommendations</h4>
+                   <div className="space-y-1">
+                     {medicalExtraction.recommendations.slice(0, 3).map((rec, index) => (
+                       <div key={index} className="text-xs text-white/80 flex items-start space-x-2">
+                         <span className="text-yellow-400 mt-1">•</span>
+                         <span>{rec}</span>
+                       </div>
+                     ))}
+                   </div>
+                 </div>
+               )}
+             </div>
+             
+             {/* Confidence Level */}
+             <div className="flex items-center justify-between pt-4 border-t border-white/20 mt-6">
+               <span className="text-xs text-white/60">Extraction Confidence</span>
+               <div className="flex items-center space-x-2">
+                 <div className="w-16 bg-white/10 rounded-full h-2">
+                   <div 
+                     className={`h-2 rounded-full transition-all duration-300 ${
+                       medicalExtraction.confidence >= 0.7 ? 'bg-green-400' :
+                       medicalExtraction.confidence >= 0.4 ? 'bg-yellow-400' : 'bg-red-400'
+                     }`}
+                     style={{ width: `${medicalExtraction.confidence * 100}%` }}
+                   ></div>
+                 </div>
+                 <span className="text-xs text-white font-medium">{Math.round(medicalExtraction.confidence * 100)}%</span>
+               </div>
+             </div>
+           </div>
+         </motion.div>
+       )}
             </div>
+            
+      {/* Settings Panel Component */}
+      <SettingsPanel
+        showSettings={showSettings}
+        setShowSettings={setShowSettings}
+        selectedProvider={selectedProvider}
+        setSelectedProvider={handleProviderChange}
+        providers={providers}
+        apiKeys={apiKeys}
+        apiKeyNames={apiKeyNames}
+        selectedApiKey={selectedApiKey}
+        setSelectedApiKey={setSelectedApiKey}
+        newApiKey={newApiKey}
+        setNewApiKey={setNewApiKey}
+        newApiKeyName={newApiKeyName}
+        setNewApiKeyName={setNewApiKeyName}
+        showApiKeyInput={showApiKeyInput}
+        setShowApiKeyInput={setShowApiKeyInput}
+        showApiKeyDropdown={showApiKeyDropdown}
+        setShowApiKeyDropdown={setShowApiKeyDropdown}
+        saveApiKeyToStorage={saveApiKeyToStorage}
+        deleteApiKey={removeApiKey}
+        editApiKey={editApiKey}
+        isCloudProvider={isCloudProvider}
+        getApiKeyNamesForProvider={getApiKeyNamesForProvider}
+        hipaaCompliance={hipaaCompliance}
+      />
 
-            <div className="overflow-y-auto max-h-[60vh] space-y-4">
-              {/* Pain Level */}
-              <div className="bg-white/5 rounded-lg p-4">
-                <h4 className="text-lg font-medium text-white mb-2">Pain Level</h4>
-                <div className="flex items-center space-x-2">
-                  <div className="flex-1 bg-white/10 rounded-full h-2">
-                    <div 
-                      className="bg-gradient-to-r from-green-400 to-red-500 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${(medicalExtraction.painLevel / 10) * 100}%` }}
-                    ></div>
-                  </div>
-                  <span className="text-white font-medium">{medicalExtraction.painLevel}/10</span>
-                </div>
-              </div>
+      {/* Modal Components */}
+      <SaveDialog
+        showSaveDialog={showSaveDialog}
+        setShowSaveDialog={setShowSaveDialog}
+        saveMode={saveMode}
+        setSaveMode={setSaveMode}
+        newFileName={newFileName}
+        setNewFileName={setNewFileName}
+        selectedFileToOverwrite={selectedFileToOverwrite}
+        setSelectedFileToOverwrite={setSelectedFileToOverwrite}
+        savedCases={savedCases}
+        onSave={handleSaveCase}
+      />
 
-              {/* Symptoms */}
-              {medicalExtraction.symptoms.length > 0 && (
-                <div className="bg-white/5 rounded-lg p-4">
-                  <h4 className="text-lg font-medium text-white mb-2">Symptoms Detected</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {medicalExtraction.symptoms.map((symptom, index) => (
-                      <span key={index} className="bg-red-500/20 text-red-300 px-3 py-1 rounded-full text-sm">
-                        {symptom}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+      <LoadDialog
+        showLoadDialog={showLoadDialog}
+        setShowLoadDialog={setShowLoadDialog}
+        selectedFileToLoad={selectedFileToLoad}
+        setSelectedFileToLoad={setSelectedFileToLoad}
+        savedCases={savedCases}
+        onLoad={handleLoadCase}
+      />
 
-              {/* Medications */}
-              {medicalExtraction.medications.length > 0 && (
-                <div className="bg-white/5 rounded-lg p-4">
-                  <h4 className="text-lg font-medium text-white mb-2">Medications Mentioned</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {medicalExtraction.medications.map((medication, index) => (
-                      <span key={index} className="bg-blue-500/20 text-blue-300 px-3 py-1 rounded-full text-sm">
-                        {medication}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+      <DeleteDialog
+        showDeleteDialog={showDeleteDialog}
+        setShowDeleteDialog={setShowDeleteDialog}
+        selectedFileToDelete={selectedFileToDelete}
+        setSelectedFileToDelete={setSelectedFileToDelete}
+        savedCases={savedCases}
+        onDelete={handleDeleteCase}
+      />
 
-              {/* Medical History */}
-              {medicalExtraction.medicalHistory && (
-                <div className="bg-white/5 rounded-lg p-4">
-                  <h4 className="text-lg font-medium text-white mb-2">Medical History</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {medicalExtraction.medicalHistory.conditions.length > 0 && (
-                      <div>
-                        <h5 className="text-sm font-medium text-white/80 mb-1">Conditions</h5>
-                        <div className="flex flex-wrap gap-1">
-                          {medicalExtraction.medicalHistory.conditions.map((condition, index) => (
-                            <span key={index} className="bg-purple-500/20 text-purple-300 px-2 py-1 rounded text-xs">
-                              {condition}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {medicalExtraction.medicalHistory.allergies.length > 0 && (
-                      <div>
-                        <h5 className="text-sm font-medium text-white/80 mb-1">Allergies</h5>
-                        <div className="flex flex-wrap gap-1">
-                          {medicalExtraction.medicalHistory.allergies.map((allergy, index) => (
-                            <span key={index} className="bg-orange-500/20 text-orange-300 px-2 py-1 rounded text-xs">
-                              {allergy}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+      <MedicalSummaryModal
+        showMedicalSummaryModal={showMedicalSummaryModal}
+        setShowMedicalSummaryModal={setShowMedicalSummaryModal}
+        medicalExtraction={medicalExtraction}
+        aiStatus={aiStatus}
+      />
 
-              {/* Vital Signs */}
-              {medicalExtraction.vitalSigns && Object.keys(medicalExtraction.vitalSigns).length > 0 && (
-                <div className="bg-white/5 rounded-lg p-4">
-                  <h4 className="text-lg font-medium text-white mb-2">Vital Signs</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {Object.entries(medicalExtraction.vitalSigns).map(([key, value]) => (
-                      <div key={key} className="text-center">
-                        <div className="text-white/60 text-xs capitalize">{key.replace(/([A-Z])/g, ' $1')}</div>
-                        <div className="text-white font-medium">{value}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Diagnosis */}
-              {medicalExtraction.diagnosis.length > 0 && (
-                <div className="bg-white/5 rounded-lg p-4">
-                  <h4 className="text-lg font-medium text-white mb-2">Diagnosis</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {medicalExtraction.diagnosis.map((diagnosis, index) => (
-                      <span key={index} className="bg-green-500/20 text-green-300 px-3 py-1 rounded-full text-sm">
-                        {diagnosis}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Recommendations */}
-              {medicalExtraction.recommendations.length > 0 && (
-                <div className="bg-white/5 rounded-lg p-4">
-                  <h4 className="text-lg font-medium text-white mb-2">Recommendations</h4>
-                  <ul className="space-y-2">
-                    {medicalExtraction.recommendations.map((recommendation, index) => (
-                      <li key={index} className="text-white/90 flex items-start space-x-2">
-                        <span className="text-blue-400 mt-1">•</span>
-                        <span>{recommendation}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Confidence and Severity */}
-              <div className="bg-white/5 rounded-lg p-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="text-center">
-                    <div className="text-white/60 text-sm">Confidence</div>
-                    <div className={`text-lg font-bold ${
-                      medicalExtraction.confidence >= 0.7 ? 'text-green-400' :
-                      medicalExtraction.confidence >= 0.4 ? 'text-yellow-400' : 'text-red-400'
-                    }`}>
-                      {Math.round(medicalExtraction.confidence * 100)}%
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-white/60 text-sm">Severity</div>
-                    <div className={`text-lg font-bold capitalize ${
-                      medicalExtraction.severity === 'high' ? 'text-red-400' :
-                      medicalExtraction.severity === 'medium' ? 'text-yellow-400' : 'text-green-400'
-                    }`}>
-                      {medicalExtraction.severity}
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-white/60 text-sm">Urgency</div>
-                    <div className={`text-lg font-bold capitalize ${
-                      medicalExtraction.urgency === 'emergency' ? 'text-red-400' :
-                      medicalExtraction.urgency === 'urgent' ? 'text-orange-400' : 'text-green-400'
-                    }`}>
-                      {medicalExtraction.urgency}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-
-      {/* Conversation Summary Modal */}
-      {showConversationSummaryModal && conversationSummary && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          onClick={() => setShowConversationSummaryModal(false)}
-        >
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-6 max-w-2xl w-full max-h-[80vh] overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-white flex items-center space-x-2">
-                <MessageSquare className="w-5 h-5 text-green-400" />
-                <span>Conversation Summary</span>
-                <div className={`w-3 h-3 rounded-full ${
-                  conversationSummary.urgency === 'emergency' ? 'bg-red-400' :
-                  conversationSummary.urgency === 'urgent' ? 'bg-orange-400' : 'bg-green-400'
-                }`}></div>
-              </h3>
-              <button
-                onClick={() => setShowConversationSummaryModal(false)}
-                className="text-white/70 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="overflow-y-auto max-h-[60vh] space-y-4">
-              {/* Key Points */}
-              {conversationSummary.keyPoints && conversationSummary.keyPoints.length > 0 && (
-                <div className="bg-white/5 rounded-lg p-4">
-                  <h4 className="text-lg font-medium text-white mb-2">Key Points</h4>
-                  <ul className="space-y-2">
-                    {conversationSummary.keyPoints.map((point, index) => (
-                      <li key={index} className="text-white/90 flex items-start space-x-2">
-                        <span className="text-green-400 mt-1">•</span>
-                        <span>{point}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Action Items */}
-              {conversationSummary.actionItems && conversationSummary.actionItems.length > 0 && (
-                <div className="bg-white/5 rounded-lg p-4">
-                  <h4 className="text-lg font-medium text-white mb-2">Action Items</h4>
-                  <ul className="space-y-2">
-                    {conversationSummary.actionItems.map((item, index) => (
-                      <li key={index} className="text-white/90 flex items-start space-x-2">
-                        <span className="text-blue-400 mt-1">→</span>
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Follow-up */}
-              {conversationSummary.followUp && (
-                <div className="bg-white/5 rounded-lg p-4">
-                  <h4 className="text-lg font-medium text-white mb-2">Follow-up</h4>
-                  <p className="text-white/90">{conversationSummary.followUp}</p>
-                </div>
-              )}
-
-              {/* Summary Stats */}
-              <div className="bg-white/5 rounded-lg p-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="text-center">
-                    <div className="text-white/60 text-sm">Confidence</div>
-                    <div className={`text-lg font-bold ${
-                      conversationSummary.confidence >= 0.7 ? 'text-green-400' :
-                      conversationSummary.confidence >= 0.4 ? 'text-yellow-400' : 'text-red-400'
-                    }`}>
-                      {Math.round(conversationSummary.confidence * 100)}%
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-white/60 text-sm">Urgency</div>
-                    <div className={`text-lg font-bold capitalize ${
-                      conversationSummary.urgency === 'emergency' ? 'text-red-400' :
-                      conversationSummary.urgency === 'urgent' ? 'text-orange-400' : 'text-green-400'
-                    }`}>
-                      {conversationSummary.urgency}
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-white/60 text-sm">Messages</div>
-                    <div className="text-lg font-bold text-white">
-                      {messages.length}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        </motion.div>
+      {showConversationSummaryModal && (
+        <ConversationSummaryModal
+          summary={conversationSummary}
+          onClose={() => setShowConversationSummaryModal(false)}
+        />
       )}
     </div>
   )
