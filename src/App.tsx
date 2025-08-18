@@ -192,15 +192,44 @@ function App() {
         const cases = JSON.parse(saved)
         console.log('🔄 Refreshed cases:', cases)
         setSavedCases(cases)
+      } else {
+        console.log('🔄 No saved cases found in localStorage')
+        setSavedCases([])
       }
     } catch (error) {
       console.error('Failed to refresh saved cases:', error)
+      setSavedCases([])
+    }
+  }
+
+  // Test function to check localStorage
+  const testLocalStorage = () => {
+    console.log('🧪 Testing localStorage...')
+    const allKeys = Object.keys(localStorage)
+    console.log('🧪 All localStorage keys:', allKeys)
+    
+    const savedCasesKey = localStorage.getItem('medical_translator_saved_cases')
+    console.log('🧪 Saved cases key value:', savedCasesKey)
+    
+    if (savedCasesKey) {
+      try {
+        const parsed = JSON.parse(savedCasesKey)
+        console.log('🧪 Parsed saved cases:', parsed)
+      } catch (error) {
+        console.error('🧪 Error parsing saved cases:', error)
+      }
     }
   }
 
   // Save cases to localStorage whenever savedCases changes
   useEffect(() => {
-    localStorage.setItem('medical_translator_saved_cases', JSON.stringify(savedCases))
+    console.log('💾 Saving cases to localStorage:', savedCases)
+    try {
+      localStorage.setItem('medical_translator_saved_cases', JSON.stringify(savedCases))
+      console.log('✅ Cases saved to localStorage successfully')
+    } catch (error) {
+      console.error('❌ Failed to save cases to localStorage:', error)
+    }
   }, [savedCases])
 
   // Save current conversation and medical data
@@ -1864,6 +1893,20 @@ Return a comprehensive JSON object with all medical information intelligently ca
               <Trash className="w-5 h-5" />
               <span>Delete Cases</span>
             </motion.button>
+
+            {/* Debug Option */}
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                testLocalStorage()
+                refreshSavedCases()
+                setShowHamburgerMenu(false)
+              }}
+              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-yellow-500/20 hover:bg-yellow-500/30 transition-all duration-200 text-yellow-300"
+            >
+              <span>🔧 Debug Storage</span>
+            </motion.button>
           </div>
         </motion.div>
       )}
@@ -3243,10 +3286,11 @@ Return a comprehensive JSON object with all medical information intelligently ca
                     value={selectedFileToOverwrite}
                     onChange={(e) => setSelectedFileToOverwrite(e.target.value)}
                     className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    style={{ color: 'white' }}
                   >
-                    <option value="">Select a case...</option>
+                    <option value="" style={{ backgroundColor: '#1f2937', color: 'white' }}>Select a case...</option>
                     {savedCases.map((case_) => (
-                      <option key={case_.id} value={case_.id}>
+                      <option key={case_.id} value={case_.id} style={{ backgroundColor: '#1f2937', color: 'white' }}>
                         {case_.name} - {new Date(case_.timestamp).toLocaleString()}
                       </option>
                     ))}
@@ -3321,10 +3365,11 @@ Return a comprehensive JSON object with all medical information intelligently ca
                     value={selectedFileToLoad}
                     onChange={(e) => setSelectedFileToLoad(e.target.value)}
                     className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    style={{ color: 'white' }}
                   >
-                    <option value="">Select a case...</option>
+                    <option value="" style={{ backgroundColor: '#1f2937', color: 'white' }}>Select a case...</option>
                     {savedCases.map((case_) => (
-                      <option key={case_.id} value={case_.id}>
+                      <option key={case_.id} value={case_.id} style={{ backgroundColor: '#1f2937', color: 'white' }}>
                         {case_.name} - {new Date(case_.timestamp).toLocaleString()}
                       </option>
                     ))}
@@ -3394,10 +3439,11 @@ Return a comprehensive JSON object with all medical information intelligently ca
                     value={selectedFileToDelete}
                     onChange={(e) => setSelectedFileToDelete(e.target.value)}
                     className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    style={{ color: 'white' }}
                   >
-                    <option value="">Select a case...</option>
+                    <option value="" style={{ backgroundColor: '#1f2937', color: 'white' }}>Select a case...</option>
                     {savedCases.map((case_) => (
-                      <option key={case_.id} value={case_.id}>
+                      <option key={case_.id} value={case_.id} style={{ backgroundColor: '#1f2937', color: 'white' }}>
                         {case_.name} - {new Date(case_.timestamp).toLocaleString()}
                       </option>
                     ))}
