@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Mic, 
@@ -16,7 +16,8 @@ import {
   Globe,
   X,
   Type,
-  Trash2
+  Trash2,
+  Star
 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import { sanitizeInput, encodeOutput } from './utils/security'
@@ -29,6 +30,7 @@ import {
 } from './utils/accessibility.tsx'
 import { secureStorage, migrateExistingKeys } from './utils/secureStorage'
 import { hipaaCompliance, createPrivacyConsentDialog } from './utils/hipaa'
+import MedicalExtractionService, { type MedicalExtraction } from './utils/medicalExtraction'
 
 // Type declarations for Web Speech API
 declare global {
@@ -45,6 +47,8 @@ interface Message {
   isDoctor: boolean
   timestamp: Date
   language: string
+  rating?: number // 0-5 stars for translation quality
+  translationQuality?: 'poor' | 'fair' | 'good' | 'excellent'
 }
 
 interface Provider {
@@ -70,11 +74,27 @@ function App() {
   ])
   const [selectedProvider, setSelectedProvider] = useState('openai')
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
+  const [apiKeyNames, setApiKeyNames] = useState<Record<string, string[]>>({})
   const [selectedApiKey, setSelectedApiKey] = useState<string>('')
   const [newApiKey, setNewApiKey] = useState<string>('')
+  const [newApiKeyName, setNewApiKeyName] = useState<string>('')
   const [showApiKeyInput, setShowApiKeyInput] = useState(false)
+  const [showApiKeyDropdown, setShowApiKeyDropdown] = useState(false)
   const [manualText, setManualText] = useState<string>('')
   const [showManualInput, setShowManualInput] = useState(false)
+  const [messageRatings, setMessageRatings] = useState<Record<string, number>>({})
+  const [showRatingPrompt, setShowRatingPrompt] = useState<string | null>(null)
+  const [translationQuality, setTranslationQuality] = useState<{
+    averageRating: number
+    totalRatings: number
+    qualityLevel: 'poor' | 'fair' | 'good' | 'excellent'
+  }>({ averageRating: 0, totalRatings: 0, qualityLevel: 'good' })
+  
+  // Medical extraction state
+  const [medicalExtraction, setMedicalExtraction] = useState<MedicalExtraction | null>(null)
+  const [showMedicalSummary, setShowMedicalSummary] = useState(false)
+  const [extractionConfidence, setExtractionConfidence] = useState(0)
+  const [aiStatus, setAiStatus] = useState<'active' | 'inactive' | 'checking'>('checking')
 
   // Load API keys from secure storage on component mount
   useEffect(() => {
@@ -96,15 +116,24 @@ function App() {
           // Load encrypted keys
           const keyNames = await secureStorage.listApiKeys()
           const loadedKeys: Record<string, string> = {}
+          const loadedKeyNames: Record<string, string[]> = {}
           
           for (const name of keyNames) {
             const key = await secureStorage.getApiKey(name)
             if (key) {
               loadedKeys[name] = key
+              // For now, we'll assume all keys are for the current provider
+              // In a more sophisticated system, you might store provider info with each key
+              const currentProvider = selectedProvider
+              if (!loadedKeyNames[currentProvider]) {
+                loadedKeyNames[currentProvider] = []
+              }
+              loadedKeyNames[currentProvider].push(name)
             }
           }
           
           setApiKeys(loadedKeys)
+          setApiKeyNames(loadedKeyNames)
         } else {
           toast.error('Failed to initialize secure storage')
         }
@@ -233,6 +262,12 @@ function App() {
     
     setMessages(prev => [...prev, newMessage])
     playAudio(translatedText)
+    
+    // Show rating prompt for patient messages
+    if (!isDoctor) {
+      setShowRatingPrompt(newMessage.id)
+      toast.success('Translation complete! Please rate the quality below.', { duration: 4000 })
+    }
     
     // Announce translation to screen readers
     ScreenReader.announceTranslation(manualText, translatedText, currentLanguage)
@@ -563,6 +598,12 @@ function App() {
           // Auto-play the translated text
           playAudio(translatedText)
           
+          // Show rating prompt for patient messages
+          if (!isDoctor) {
+            setShowRatingPrompt(newMessage.id)
+            toast.success('Translation complete! Please rate the quality below.', { duration: 4000 })
+          }
+          
           // Announce translation to screen readers
           ScreenReader.announceTranslation(sanitizationResult.sanitized, translatedText, currentLanguage)
           
@@ -639,6 +680,8 @@ function App() {
 
   const clearMessages = () => {
     setMessages([])
+    setMessageRatings({})
+    setShowRatingPrompt(null)
     toast.success('Conversation cleared')
     
     // Log conversation clear for audit trail
@@ -647,7 +690,667 @@ function App() {
     })
   }
 
+  // Handle translation rating
+  const handleRating = (messageId: string, rating: number) => {
+    setMessageRatings(prev => ({ ...prev, [messageId]: rating }))
+    
+    // Update message with rating
+    setMessages(prev => prev.map(msg => 
+      msg.id === messageId 
+        ? { 
+            ...msg, 
+            rating,
+            translationQuality: rating <= 1 ? 'poor' : rating <= 2 ? 'fair' : rating <= 4 ? 'good' : 'excellent'
+          }
+        : msg
+    ))
+    
+    // Calculate overall translation quality
+    const updatedRatings = { ...messageRatings, [messageId]: rating }
+    const ratings = Object.values(updatedRatings)
+    const averageRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0
+    const qualityLevel = averageRating <= 1.5 ? 'poor' : averageRating <= 2.5 ? 'fair' : averageRating <= 4 ? 'good' : 'excellent'
+    
+    setTranslationQuality({
+      averageRating: Math.round(averageRating * 10) / 10,
+      totalRatings: ratings.length,
+      qualityLevel
+    })
+    
+    // Log rating for analytics and quality improvement
+    hipaaCompliance.logAuditEntry('translation_rated', { 
+      messageId, 
+      rating,
+      quality: rating <= 1 ? 'poor' : rating <= 2 ? 'fair' : rating <= 4 ? 'good' : 'excellent',
+      overallQuality: qualityLevel,
+      averageRating
+    })
+    
+    toast.success(`Rating saved: ${rating} stars`)
+    setShowRatingPrompt(null)
+  }
+
   // Removed test function - no longer needed
+
+  // Check AI availability
+  const checkAiAvailability = useCallback(async () => {
+    try {
+      // Check if selected provider is a cloud model that supports AI
+      const cloudProviders = ['openai', 'google', 'deepl']
+      const isCloudProvider = cloudProviders.includes(selectedProvider)
+      
+      if (!isCloudProvider) {
+        setAiStatus('inactive')
+        return
+      }
+      
+      // Check if API key exists for the selected provider
+      const hasApiKey = selectedApiKey && apiKeys[selectedApiKey] && apiKeys[selectedApiKey].trim() !== ''
+      
+      if (hasApiKey) {
+        setAiStatus('active')
+      } else {
+        setAiStatus('inactive')
+      }
+    } catch (error) {
+      console.error('Error checking AI availability:', error)
+      setAiStatus('inactive')
+    }
+  }, [apiKeys, selectedProvider, selectedApiKey])
+
+  // Update AI status when API keys or provider changes
+  useEffect(() => {
+    checkAiAvailability()
+  }, [checkAiAvailability])
+
+  // AI-powered medical extraction
+    const extractMedicalWithAI = async (messages: Message[]) => {
+    try {
+      const conversationText = messages.map(msg => `${msg.isDoctor ? 'Doctor' : 'Patient'}: ${msg.text}`).join('\n')
+
+      const systemPrompt = `You are an intelligent medical AI assistant that analyzes doctor-patient conversations in real-time. Your role is to:
+
+1. **Intelligently categorize medical information** based on content, not conversation stage
+2. **Separate patient background** from current situation and ongoing care
+3. **Update information dynamically** as new details emerge
+4. **Provide context-appropriate summaries** for doctors
+
+**Information Categorization Rules:**
+- **Patient Background**: Historical information (past conditions, surgeries, family history, chronic medications, allergies, lifestyle habits)
+- **Current Situation**: Presenting symptoms, current complaints, recent changes, acute issues
+- **Ongoing Care**: Current treatments, medications being taken, recent diagnoses, active monitoring
+- **Assessment & Plan**: Doctor's findings, diagnoses, treatment plans, recommendations, follow-up
+
+**Smart Analysis Approach:**
+- Analyze the NATURE of information, not when it was mentioned
+- Update categories as new information emerges
+- Maintain comprehensive tracking across all categories
+- Provide real-time insights for clinical decision making`
+
+      const analysisPrompt = `Analyze this medical conversation and provide a comprehensive, intelligently categorized medical summary:
+
+{
+  "patientBackground": {
+    "currentMedications": ["medications patient is currently taking regularly"],
+    "allergies": ["known allergies and reactions"],
+    "pastMedicalHistory": ["significant past illnesses, surgeries, chronic conditions"],
+    "familyHistory": ["relevant family medical history"],
+    "lifestyle": ["smoking, alcohol, exercise, diet, occupation"],
+    "chronicConditions": ["ongoing medical conditions"]
+  },
+  "currentSituation": {
+    "chiefComplaint": "primary reason for current visit",
+    "presentingSymptoms": ["current symptoms that brought patient in"],
+    "acuteIssues": ["new or worsening problems"],
+    "recentChanges": ["recent changes in health status"],
+    "painLevel": number (1-10 scale, 0 if no pain mentioned),
+    "symptomDuration": "how long symptoms have been present"
+  },
+  "ongoingCare": {
+    "activeTreatments": ["current treatments being received"],
+    "medications": ["all medications discussed - current and new"],
+    "recentDiagnoses": ["diagnoses made in recent visits"],
+    "monitoring": ["conditions being monitored"],
+    "vitalSigns": {
+      "bloodPressure": "if mentioned",
+      "temperature": "if mentioned", 
+      "heartRate": "if mentioned",
+      "weight": "if mentioned",
+      "height": "if mentioned"
+    }
+  },
+  "assessmentAndPlan": {
+    "diagnosis": ["diagnoses made or suspected"],
+    "differentialDiagnosis": ["conditions being considered"],
+    "treatmentPlan": ["treatments prescribed or recommended"],
+    "medicationsPrescribed": ["new medications prescribed"],
+    "recommendations": ["medical recommendations made"],
+    "followUp": ["follow-up appointments, tests, monitoring"],
+    "patientInstructions": ["instructions given to patient"],
+    "severity": "low" | "medium" | "high" | "critical",
+    "urgency": "routine" | "urgent" | "emergency"
+  },
+  "confidence": number (0-1, based on clarity and completeness of information)
+}
+
+**Analysis Instructions:**
+- Categorize information based on its NATURE, not when it was mentioned
+- Patient background can be mentioned at any point in conversation
+- Current symptoms can be discussed throughout the visit
+- Update all categories as new information emerges
+- Maintain comprehensive tracking across the entire conversation
+- Focus on clinical relevance and decision-making support
+
+Conversation:
+${conversationText}
+
+Return a comprehensive JSON object with all medical information intelligently categorized.`
+
+      // Log the intelligent analysis approach
+      console.log('🤖 AI Medical Extraction - Intelligent Analysis:')
+      console.log('💬 Message Count:', messages.length)
+      console.log('🎯 System Context:', systemPrompt)
+      console.log('📝 Analysis Prompt:', analysisPrompt)
+      console.log('💬 Full Conversation:', conversationText)
+
+      // Log the prompt being sent to LLM
+      console.log('🤖 AI Medical Extraction - Sending to LLM:')
+      console.log('📝 System Prompt:', systemPrompt)
+      console.log('📝 Analysis Prompt:', analysisPrompt)
+      console.log('💬 Conversation:', conversationText)
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKeys[selectedApiKey]}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: analysisPrompt }
+          ],
+          temperature: 0.1,
+          max_tokens: 1500
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('AI extraction failed')
+      }
+
+      const data = await response.json()
+      const aiResponse = data.choices[0].message.content.trim()
+      
+            // Log the raw LLM response
+      console.log('🤖 AI Medical Extraction - LLM Response:')
+      console.log('📄 Raw Response:', aiResponse)
+      console.log('🔍 Parsed JSON:', JSON.parse(aiResponse))
+
+      // Parse AI response
+      const extraction = JSON.parse(aiResponse)
+
+      // Process intelligently categorized response
+      const processedExtraction: MedicalExtraction = {
+        // Legacy fields for backward compatibility
+        painLevel: Math.min(Math.max(extraction.currentSituation?.painLevel || extraction.painLevel || 0, 0), 10),
+        symptoms: Array.isArray(extraction.currentSituation?.presentingSymptoms) ? extraction.currentSituation.presentingSymptoms : (Array.isArray(extraction.symptoms) ? extraction.symptoms : []),
+        medications: Array.isArray(extraction.ongoingCare?.medications) ? extraction.ongoingCare.medications : (Array.isArray(extraction.medications) ? extraction.medications : []),
+        medicalHistory: {
+          conditions: Array.isArray(extraction.patientBackground?.chronicConditions) ? extraction.patientBackground.chronicConditions : (Array.isArray(extraction.medicalHistory?.conditions) ? extraction.medicalHistory.conditions : []),
+          surgeries: Array.isArray(extraction.patientBackground?.pastMedicalHistory) ? extraction.patientBackground.pastMedicalHistory.filter(item => item.toLowerCase().includes('surgery') || item.toLowerCase().includes('operation')) : (Array.isArray(extraction.medicalHistory?.surgeries) ? extraction.medicalHistory.surgeries : []),
+          allergies: Array.isArray(extraction.patientBackground?.allergies) ? extraction.patientBackground.allergies : (Array.isArray(extraction.medicalHistory?.allergies) ? extraction.medicalHistory.allergies : []),
+          familyHistory: Array.isArray(extraction.patientBackground?.familyHistory) ? extraction.patientBackground.familyHistory : (Array.isArray(extraction.medicalHistory?.familyHistory) ? extraction.medicalHistory.familyHistory : []),
+          lifestyle: Array.isArray(extraction.patientBackground?.lifestyle) ? extraction.patientBackground.lifestyle : (Array.isArray(extraction.medicalHistory?.lifestyle) ? extraction.medicalHistory.lifestyle : [])
+        },
+        vitalSigns: {
+          bloodPressure: extraction.ongoingCare?.vitalSigns?.bloodPressure || extraction.vitalSigns?.bloodPressure || undefined,
+          temperature: extraction.ongoingCare?.vitalSigns?.temperature || extraction.vitalSigns?.temperature || undefined,
+          heartRate: extraction.ongoingCare?.vitalSigns?.heartRate || extraction.vitalSigns?.heartRate || undefined,
+          weight: extraction.ongoingCare?.vitalSigns?.weight || extraction.vitalSigns?.weight || undefined,
+          height: extraction.ongoingCare?.vitalSigns?.height || extraction.vitalSigns?.height || undefined
+        },
+        diagnosis: Array.isArray(extraction.assessmentAndPlan?.diagnosis) ? extraction.assessmentAndPlan.diagnosis : (Array.isArray(extraction.diagnosis) ? extraction.diagnosis : []),
+        severity: ['low', 'medium', 'high', 'critical'].includes(extraction.assessmentAndPlan?.severity) ? extraction.assessmentAndPlan.severity : (['low', 'medium', 'high', 'critical'].includes(extraction.severity) ? extraction.severity : 'low'),
+        recommendations: Array.isArray(extraction.assessmentAndPlan?.recommendations) ? extraction.assessmentAndPlan.recommendations : (Array.isArray(extraction.recommendations) ? extraction.recommendations : []),
+        urgency: ['routine', 'urgent', 'emergency'].includes(extraction.assessmentAndPlan?.urgency) ? extraction.assessmentAndPlan.urgency : (['routine', 'urgent', 'emergency'].includes(extraction.urgency) ? extraction.urgency : 'routine'),
+        confidence: Math.min(Math.max(extraction.confidence || 0.5, 0), 1),
+
+        // New AI-powered intelligent categorization
+        patientBackground: {
+          currentMedications: Array.isArray(extraction.patientBackground?.currentMedications) ? extraction.patientBackground.currentMedications : [],
+          allergies: Array.isArray(extraction.patientBackground?.allergies) ? extraction.patientBackground.allergies : [],
+          pastMedicalHistory: Array.isArray(extraction.patientBackground?.pastMedicalHistory) ? extraction.patientBackground.pastMedicalHistory : [],
+          familyHistory: Array.isArray(extraction.patientBackground?.familyHistory) ? extraction.patientBackground.familyHistory : [],
+          lifestyle: Array.isArray(extraction.patientBackground?.lifestyle) ? extraction.patientBackground.lifestyle : [],
+          chronicConditions: Array.isArray(extraction.patientBackground?.chronicConditions) ? extraction.patientBackground.chronicConditions : []
+        },
+        currentSituation: {
+          chiefComplaint: extraction.currentSituation?.chiefComplaint || '',
+          presentingSymptoms: Array.isArray(extraction.currentSituation?.presentingSymptoms) ? extraction.currentSituation.presentingSymptoms : [],
+          acuteIssues: Array.isArray(extraction.currentSituation?.acuteIssues) ? extraction.currentSituation.acuteIssues : [],
+          recentChanges: Array.isArray(extraction.currentSituation?.recentChanges) ? extraction.currentSituation.recentChanges : [],
+          painLevel: Math.min(Math.max(extraction.currentSituation?.painLevel || 0, 0), 10),
+          symptomDuration: extraction.currentSituation?.symptomDuration || ''
+        },
+        ongoingCare: {
+          activeTreatments: Array.isArray(extraction.ongoingCare?.activeTreatments) ? extraction.ongoingCare.activeTreatments : [],
+          medications: Array.isArray(extraction.ongoingCare?.medications) ? extraction.ongoingCare.medications : [],
+          recentDiagnoses: Array.isArray(extraction.ongoingCare?.recentDiagnoses) ? extraction.ongoingCare.recentDiagnoses : [],
+          monitoring: Array.isArray(extraction.ongoingCare?.monitoring) ? extraction.ongoingCare.monitoring : [],
+          vitalSigns: {
+            bloodPressure: extraction.ongoingCare?.vitalSigns?.bloodPressure || undefined,
+            temperature: extraction.ongoingCare?.vitalSigns?.temperature || undefined,
+            heartRate: extraction.ongoingCare?.vitalSigns?.heartRate || undefined,
+            weight: extraction.ongoingCare?.vitalSigns?.weight || undefined,
+            height: extraction.ongoingCare?.vitalSigns?.height || undefined
+          }
+        },
+        assessmentAndPlan: {
+          diagnosis: Array.isArray(extraction.assessmentAndPlan?.diagnosis) ? extraction.assessmentAndPlan.diagnosis : [],
+          differentialDiagnosis: Array.isArray(extraction.assessmentAndPlan?.differentialDiagnosis) ? extraction.assessmentAndPlan.differentialDiagnosis : [],
+          treatmentPlan: Array.isArray(extraction.assessmentAndPlan?.treatmentPlan) ? extraction.assessmentAndPlan.treatmentPlan : [],
+          medicationsPrescribed: Array.isArray(extraction.assessmentAndPlan?.medicationsPrescribed) ? extraction.assessmentAndPlan.medicationsPrescribed : [],
+          recommendations: Array.isArray(extraction.assessmentAndPlan?.recommendations) ? extraction.assessmentAndPlan.recommendations : [],
+          followUp: Array.isArray(extraction.assessmentAndPlan?.followUp) ? extraction.assessmentAndPlan.followUp : [],
+          patientInstructions: Array.isArray(extraction.assessmentAndPlan?.patientInstructions) ? extraction.assessmentAndPlan.patientInstructions : [],
+          severity: ['low', 'medium', 'high', 'critical'].includes(extraction.assessmentAndPlan?.severity) ? extraction.assessmentAndPlan.severity : 'low',
+          urgency: ['routine', 'urgent', 'emergency'].includes(extraction.assessmentAndPlan?.urgency) ? extraction.assessmentAndPlan.urgency : 'routine'
+        }
+      }
+      
+      // Log the final processed extraction
+      console.log('🤖 AI Medical Extraction - Final Result:')
+      console.log('✅ Processed Extraction:', processedExtraction)
+      
+      return processedExtraction
+    } catch (error) {
+      console.error('AI extraction failed, falling back to pattern-based extraction:', error)
+      return MedicalExtractionService.extractFromConversation(messages)
+    }
+  }
+
+  // Update medical extraction when messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      const extractMedical = async () => {
+        let extraction
+        
+        if (aiStatus === 'active') {
+          extraction = await extractMedicalWithAI(messages)
+        } else {
+          extraction = MedicalExtractionService.extractFromConversation(messages)
+        }
+        
+        setMedicalExtraction(extraction)
+        setExtractionConfidence(extraction.confidence)
+        
+        // Log medical extraction for audit trail
+        if (extraction.confidence > 0.3) {
+          hipaaCompliance.logAuditEntry('medical_extraction', {
+            method: aiStatus === 'active' ? 'ai' : 'pattern',
+            confidence: extraction.confidence,
+            painLevel: extraction.painLevel,
+            symptomsCount: extraction.symptoms.length,
+            medicationsCount: extraction.medications.length,
+            severity: extraction.severity
+          })
+        }
+      }
+      
+      extractMedical()
+    }
+  }, [messages, aiStatus, apiKeys.openai])
+
+  // Rating component
+  const RatingStars = ({ messageId, currentRating, onRate }: { 
+    messageId: string
+    currentRating?: number
+    onRate: (rating: number) => void 
+  }) => {
+    return (
+      <div className="flex items-center space-x-1 mt-2">
+        <span className="text-xs text-white/60 mr-2">Rate translation:</span>
+        {[1, 2, 3, 4, 5].map((star) => (
+          <motion.button
+            key={star}
+            onClick={() => onRate(star)}
+            className={`text-sm transition-colors p-1 rounded ${
+              currentRating && star <= currentRating 
+                ? 'text-yellow-400 bg-yellow-400/10' 
+                : 'text-white/30 hover:text-yellow-300 hover:bg-white/10'
+            }`}
+            whileHover={{ scale: 1.2 }}
+            whileTap={{ scale: 0.9 }}
+            aria-label={`Rate ${star} stars`}
+          >
+            <Star className="w-4 h-4 sm:w-5 sm:h-5" fill={currentRating && star <= currentRating ? 'currentColor' : 'none'} />
+          </motion.button>
+        ))}
+      </div>
+    )
+  }
+
+  // Medical Summary Component
+  const MedicalSummary = ({ extraction }: { extraction: MedicalExtraction }) => {
+    return (
+      <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-white">Medical Summary</h3>
+          <div className="flex items-center space-x-2">
+            <div className={`w-3 h-3 rounded-full ${
+              extraction.severity === 'high' ? 'bg-red-400' :
+              extraction.severity === 'medium' ? 'bg-yellow-400' : 'bg-green-400'
+            }`}></div>
+            <span className="text-xs text-white/60 capitalize">{extraction.severity} severity</span>
+            <div className="flex items-center space-x-1 ml-2">
+              <div className={`w-2 h-2 rounded-full ${
+                aiStatus === 'active' ? 'bg-green-400' : 'bg-gray-400'
+              }`}></div>
+              <span className="text-xs text-white/60">
+                {aiStatus === 'active' ? 'AI' : 'Pattern'}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        {/* Pain Level */}
+        {extraction.painLevel > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-white">Pain Level</h4>
+            <div className="flex items-center space-x-3">
+              <div className="flex-1 bg-white/10 rounded-full h-2">
+                <div 
+                  className={`h-2 rounded-full transition-all duration-300 ${
+                    extraction.painLevel <= 3 ? 'bg-green-400' :
+                    extraction.painLevel <= 6 ? 'bg-yellow-400' : 'bg-red-400'
+                  }`}
+                  style={{ width: `${(extraction.painLevel / 10) * 100}%` }}
+                ></div>
+              </div>
+              <span className="text-sm text-white font-medium">{extraction.painLevel}/10</span>
+            </div>
+          </div>
+        )}
+        
+        {/* Symptoms */}
+        {extraction.symptoms.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-white">Symptoms</h4>
+            <div className="flex flex-wrap gap-2">
+              {extraction.symptoms.map((symptom, index) => (
+                <span key={index} className="px-2 py-1 bg-blue-500/20 text-blue-200 text-xs rounded-full border border-blue-400/30">
+                  {symptom}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Medications */}
+        {extraction.medications.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-white">Medications</h4>
+            <div className="flex flex-wrap gap-2">
+              {extraction.medications.map((medication, index) => (
+                <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-200 text-xs rounded-full border border-purple-400/30">
+                  {medication}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Medical History */}
+        {(extraction.medicalHistory.conditions.length > 0 || 
+          extraction.medicalHistory.surgeries.length > 0 || 
+          extraction.medicalHistory.allergies.length > 0 || 
+          extraction.medicalHistory.familyHistory.length > 0 || 
+          extraction.medicalHistory.lifestyle.length > 0) && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-white">Medical History</h4>
+            <div className="space-y-2 text-xs">
+              {extraction.medicalHistory.conditions.length > 0 && (
+                <div>
+                  <span className="text-white/60">Conditions:</span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {extraction.medicalHistory.conditions.map((condition, index) => (
+                      <span key={index} className="px-2 py-1 bg-red-500/20 text-red-200 rounded-full border border-red-400/30">
+                        {condition}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {extraction.medicalHistory.surgeries.length > 0 && (
+                <div>
+                  <span className="text-white/60">Surgeries:</span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {extraction.medicalHistory.surgeries.map((surgery, index) => (
+                      <span key={index} className="px-2 py-1 bg-orange-500/20 text-orange-200 rounded-full border border-orange-400/30">
+                        {surgery}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {extraction.medicalHistory.allergies.length > 0 && (
+                <div>
+                  <span className="text-white/60">Allergies:</span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {extraction.medicalHistory.allergies.map((allergy, index) => (
+                      <span key={index} className="px-2 py-1 bg-yellow-500/20 text-yellow-200 rounded-full border border-yellow-400/30">
+                        {allergy}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {extraction.medicalHistory.familyHistory.length > 0 && (
+                <div>
+                  <span className="text-white/60">Family History:</span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {extraction.medicalHistory.familyHistory.map((history, index) => (
+                      <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-200 rounded-full border border-purple-400/30">
+                        {history}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {extraction.medicalHistory.lifestyle.length > 0 && (
+                <div>
+                  <span className="text-white/60">Lifestyle:</span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {extraction.medicalHistory.lifestyle.map((lifestyle, index) => (
+                      <span key={index} className="px-2 py-1 bg-cyan-500/20 text-cyan-200 rounded-full border border-cyan-400/30">
+                        {lifestyle}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
+        {/* Vital Signs */}
+        {Object.values(extraction.vitalSigns).some(value => value) && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-white">Vital Signs</h4>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              {extraction.vitalSigns.bloodPressure && (
+                <div className="flex justify-between">
+                  <span className="text-white/60">BP:</span>
+                  <span className="text-white">{extraction.vitalSigns.bloodPressure}</span>
+                </div>
+              )}
+              {extraction.vitalSigns.temperature && (
+                <div className="flex justify-between">
+                  <span className="text-white/60">Temp:</span>
+                  <span className="text-white">{extraction.vitalSigns.temperature}</span>
+                </div>
+              )}
+              {extraction.vitalSigns.heartRate && (
+                <div className="flex justify-between">
+                  <span className="text-white/60">HR:</span>
+                  <span className="text-white">{extraction.vitalSigns.heartRate}</span>
+                </div>
+              )}
+              {extraction.vitalSigns.weight && (
+                <div className="flex justify-between">
+                  <span className="text-white/60">Weight:</span>
+                  <span className="text-white">{extraction.vitalSigns.weight}</span>
+                </div>
+              )}
+              {extraction.vitalSigns.height && (
+                <div className="flex justify-between">
+                  <span className="text-white/60">Height:</span>
+                  <span className="text-white">{extraction.vitalSigns.height}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Diagnosis */}
+        {extraction.diagnosis.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-white">Diagnosis</h4>
+            <div className="flex flex-wrap gap-2">
+              {extraction.diagnosis.map((diagnosis, index) => (
+                <span key={index} className="px-2 py-1 bg-red-500/20 text-red-200 text-xs rounded-full border border-red-400/30">
+                  {diagnosis}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Urgency */}
+        {extraction.urgency && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-white">Urgency</h4>
+            <div className="flex items-center space-x-2">
+              <div className={`w-3 h-3 rounded-full ${
+                extraction.urgency === 'emergency' ? 'bg-red-400' :
+                extraction.urgency === 'urgent' ? 'bg-orange-400' : 'bg-green-400'
+              }`}></div>
+              <span className="text-xs text-white capitalize">{extraction.urgency}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Recommendations */}
+        {extraction.recommendations.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-white">Recommendations</h4>
+            <ul className="space-y-1">
+              {extraction.recommendations.map((rec, index) => (
+                <li key={index} className="text-xs text-white/80 flex items-start space-x-2">
+                  <span className="text-yellow-400 mt-1">•</span>
+                  <span>{rec}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        
+        {/* Confidence Level */}
+        <div className="flex items-center justify-between pt-2 border-t border-white/20">
+          <span className="text-xs text-white/60">Extraction Confidence</span>
+          <div className="flex items-center space-x-2">
+            <div className="w-16 bg-white/10 rounded-full h-2">
+              <div 
+                className={`h-2 rounded-full transition-all duration-300 ${
+                  extraction.confidence >= 0.7 ? 'bg-green-400' :
+                  extraction.confidence >= 0.4 ? 'bg-yellow-400' : 'bg-red-400'
+                }`}
+                style={{ width: `${extraction.confidence * 100}%` }}
+              ></div>
+            </div>
+            <span className="text-xs text-white font-medium">{Math.round(extraction.confidence * 100)}%</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Check if provider is cloud-based
+  const isCloudProvider = (providerId: string) => {
+    return ['openai', 'google', 'deepl'].includes(providerId)
+  }
+
+  // Get API key names for current provider
+  const getApiKeyNamesForProvider = (providerId: string) => {
+    return apiKeyNames[providerId] || []
+  }
+
+
+  // Save API key to secure storage
+  const saveApiKeyToStorage = async (name: string, key: string) => {
+    try {
+      const result = await secureStorage.storeApiKey(name, key)
+      if (result.success) {
+        setApiKeys(prev => ({ ...prev, [name]: key }))
+        setApiKeyNames(prev => ({
+          ...prev,
+          [selectedProvider]: [...(prev[selectedProvider] || []), name]
+        }))
+        setNewApiKey('')
+        setNewApiKeyName('')
+        setShowApiKeyInput(false)
+        setSelectedApiKey(name)
+        toast.success('API key saved successfully')
+      } else {
+        toast.error(`Failed to save API key: ${result.error}`)
+      }
+    } catch (error) {
+      console.error('Error saving API key:', error)
+      toast.error('Failed to save API key')
+    }
+  }
+
+  // Delete API key
+  const deleteApiKey = async (name: string) => {
+    if (!window.confirm(`Are you sure you want to delete the API key "${name}"?`)) {
+      return
+    }
+    
+    try {
+      const result = await secureStorage.removeApiKey(name)
+      if (result.success) {
+        setApiKeys(prev => {
+          const newKeys = { ...prev }
+          delete newKeys[name]
+          return newKeys
+        })
+        setApiKeyNames(prev => ({
+          ...prev,
+          [selectedProvider]: (prev[selectedProvider] || []).filter(keyName => keyName !== name)
+        }))
+        if (selectedApiKey === name) {
+          setSelectedApiKey('')
+        }
+        toast.success('API key deleted successfully')
+      } else {
+        toast.error(`Failed to delete API key: ${result.error}`)
+      }
+    } catch (error) {
+      console.error('Error deleting API key:', error)
+      toast.error('Failed to delete API key')
+    }
+  }
+
+  // Edit API key
+  const editApiKey = (name: string) => {
+    setNewApiKeyName(name)
+    setNewApiKey(apiKeys[name] || '')
+    setShowApiKeyInput(true)
+  }
+
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden">
@@ -697,6 +1400,21 @@ function App() {
             </motion.div>
             
             <div className="flex items-center justify-center sm:justify-end space-x-2 sm:space-x-4">
+              {/* AI Status Indicator */}
+              <div className="flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-3 sm:px-4 py-2">
+                <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full ${
+                  aiStatus === 'active' ? 'bg-green-400 animate-pulse' :
+                  aiStatus === 'inactive' ? 'bg-gray-400' : 'bg-yellow-400 animate-pulse'
+                }`}></div>
+                <span className={`text-white text-xs sm:text-sm font-medium ${
+                  aiStatus === 'active' ? 'text-green-400' :
+                  aiStatus === 'inactive' ? 'text-gray-400' : 'text-yellow-400'
+                }`}>
+                  {aiStatus === 'active' ? 'AI Active' :
+                   aiStatus === 'inactive' ? 'AI Inactive' : 'Checking...'}
+                </span>
+              </div>
+              
               <div className="flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-3 sm:px-4 py-2">
                 {isOnline ? (
                   <Wifi className="w-3 h-3 sm:w-4 sm:h-4 text-green-400" />
@@ -743,6 +1461,9 @@ function App() {
                       whileTap={{ scale: 0.95 }}
                       onClick={() => {
                         setIsDoctor(true)
+                        // Auto-switch to Doctor language setup (English to Persian)
+                        setSourceLanguage('en-US')
+                        setCurrentLanguage('fa-IR')
                         ScreenReader.announceRoleSwitch(true)
                         hipaaCompliance.logAuditEntry('role_switch', { role: 'doctor' })
                       }}
@@ -766,6 +1487,9 @@ function App() {
                       whileTap={{ scale: 0.95 }}
                       onClick={() => {
                         setIsDoctor(false)
+                        // Auto-switch to Patient language setup (Persian to English)
+                        setSourceLanguage('fa-IR')
+                        setCurrentLanguage('en-US')
                         ScreenReader.announceRoleSwitch(false)
                         hipaaCompliance.logAuditEntry('role_switch', { role: 'patient' })
                       }}
@@ -849,6 +1573,23 @@ function App() {
                   <span>Clear</span>
                 </motion.button>
                 
+                {/* Medical Summary Toggle */}
+                {medicalExtraction && medicalExtraction.confidence > 0.3 && (
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setShowMedicalSummary(!showMedicalSummary)}
+                    className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 hover:from-blue-500/30 hover:to-purple-500/30 backdrop-blur-sm border border-blue-400/30 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-2 text-sm sm:text-base"
+                  >
+                    <Stethoscope className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <span>Medical Summary</span>
+                    <div className={`w-2 h-2 rounded-full ${
+                      medicalExtraction.severity === 'high' ? 'bg-red-400' :
+                      medicalExtraction.severity === 'medium' ? 'bg-yellow-400' : 'bg-green-400'
+                    }`}></div>
+                  </motion.button>
+                )}
+                
 
               </div>
 
@@ -928,7 +1669,7 @@ function App() {
               </AnimatePresence>
 
               {/* Status Indicator */}
-              <div className="text-center">
+              <div className="text-center space-y-4">
                 <motion.div 
                   animate={{ scale: isRecording ? [1, 1.05, 1] : 1 }}
                   transition={{ duration: 1, repeat: isRecording ? Infinity : 0 }}
@@ -945,6 +1686,37 @@ function App() {
                     {sourceLanguage.split('-')[0].toUpperCase()} → {currentLanguage.toUpperCase()}
                   </span>
                 </motion.div>
+                
+                {/* Translation Quality Indicator */}
+                {translationQuality.totalRatings > 0 && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="inline-flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20"
+                  >
+                    <div className="flex items-center space-x-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star 
+                          key={star}
+                          className={`w-3 h-3 ${
+                            star <= Math.round(translationQuality.averageRating) 
+                              ? 'text-yellow-400' 
+                              : 'text-white/30'
+                          }`}
+                          fill={star <= Math.round(translationQuality.averageRating) ? 'currentColor' : 'none'}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-xs text-white/80">
+                      {translationQuality.averageRating}/5 ({translationQuality.totalRatings} ratings)
+                    </span>
+                    <div className={`w-2 h-2 rounded-full ${
+                      translationQuality.qualityLevel === 'excellent' ? 'bg-green-400' :
+                      translationQuality.qualityLevel === 'good' ? 'bg-blue-400' :
+                      translationQuality.qualityLevel === 'fair' ? 'bg-yellow-400' : 'bg-red-400'
+                    }`}></div>
+                  </motion.div>
+                )}
               </div>
             </motion.div>
           </div>
@@ -1022,11 +1794,474 @@ function App() {
                           <Volume2 className="w-4 h-4" />
                         </motion.button>
                       </div>
+                      
+                      {/* Rating System - Only show for translated messages */}
+                      {!message.isDoctor && (
+                        <RatingStars
+                          messageId={message.id}
+                          currentRating={message.rating}
+                          onRate={(rating) => handleRating(message.id, rating)}
+                        />
+                      )}
                     </div>
                   </motion.div>
                 ))
               )}
             </div>
+            
+            {/* Comprehensive Medical Summary Display */}
+            {medicalExtraction && medicalExtraction.confidence > 0.3 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-6 bg-gradient-to-r from-blue-900/50 to-purple-900/50 backdrop-blur-sm rounded-lg p-4 border border-white/10"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-white">Medical Summary</h3>
+                  <div className="flex items-center space-x-1 ml-2">
+                    <div className={`w-2 h-2 rounded-full ${
+                      aiStatus === 'active' ? 'bg-green-400' : 'bg-gray-400'
+                    }`}></div>
+                    <span className="text-xs text-white/60">
+                      {aiStatus === 'active' ? 'AI' : 'Pattern'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Patient Background (Historical Information) */}
+                {(medicalExtraction.patientBackground?.currentMedications?.length > 0 || 
+                  medicalExtraction.patientBackground?.allergies?.length > 0 || 
+                  medicalExtraction.patientBackground?.pastMedicalHistory?.length > 0 || 
+                  medicalExtraction.patientBackground?.familyHistory?.length > 0 || 
+                  medicalExtraction.patientBackground?.lifestyle?.length > 0 || 
+                  medicalExtraction.patientBackground?.chronicConditions?.length > 0) && (
+                  <div className="mb-4 p-3 bg-green-900/30 rounded-lg border border-green-400/30">
+                    <h4 className="text-sm font-medium text-green-300 mb-2">Patient Background</h4>
+                    <div className="space-y-2 text-xs">
+                      {medicalExtraction.patientBackground.currentMedications.length > 0 && (
+                        <div>
+                          <span className="text-green-200/80">Current Medications:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.patientBackground.currentMedications.map((med, index) => (
+                              <span key={index} className="px-2 py-1 bg-green-500/20 text-green-200 rounded-full border border-green-400/30">
+                                {med}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.patientBackground.allergies.length > 0 && (
+                        <div>
+                          <span className="text-red-200/80">Allergies:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.patientBackground.allergies.map((allergy, index) => (
+                              <span key={index} className="px-2 py-1 bg-red-500/20 text-red-200 rounded-full border border-red-400/30">
+                                {allergy}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.patientBackground.pastMedicalHistory.length > 0 && (
+                        <div>
+                          <span className="text-blue-200/80">Past Medical History:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.patientBackground.pastMedicalHistory.map((history, index) => (
+                              <span key={index} className="px-2 py-1 bg-blue-500/20 text-blue-200 rounded-full border border-blue-400/30">
+                                {history}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.patientBackground.chronicConditions.length > 0 && (
+                        <div>
+                          <span className="text-orange-200/80">Chronic Conditions:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.patientBackground.chronicConditions.map((condition, index) => (
+                              <span key={index} className="px-2 py-1 bg-orange-500/20 text-orange-200 rounded-full border border-orange-400/30">
+                                {condition}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.patientBackground.familyHistory.length > 0 && (
+                        <div>
+                          <span className="text-purple-200/80">Family History:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.patientBackground.familyHistory.map((history, index) => (
+                              <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-200 rounded-full border border-purple-400/30">
+                                {history}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.patientBackground.lifestyle.length > 0 && (
+                        <div>
+                          <span className="text-cyan-200/80">Lifestyle:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.patientBackground.lifestyle.map((lifestyle, index) => (
+                              <span key={index} className="px-2 py-1 bg-cyan-500/20 text-cyan-200 rounded-full border border-cyan-400/30">
+                                {lifestyle}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Current Situation (Presenting Issues) */}
+                {(medicalExtraction.currentSituation?.chiefComplaint || 
+                  medicalExtraction.currentSituation?.presentingSymptoms?.length > 0 || 
+                  medicalExtraction.currentSituation?.acuteIssues?.length > 0 || 
+                  medicalExtraction.currentSituation?.recentChanges?.length > 0 || 
+                  medicalExtraction.currentSituation?.painLevel > 0) && (
+                  <div className="mb-4 p-3 bg-blue-900/30 rounded-lg border border-blue-400/30">
+                    <h4 className="text-sm font-medium text-blue-300 mb-2">Current Situation</h4>
+                    <div className="space-y-2 text-xs">
+                      {medicalExtraction.currentSituation.chiefComplaint && (
+                        <div>
+                          <span className="text-blue-200/80">Chief Complaint:</span>
+                          <span className="text-blue-200 ml-2">{medicalExtraction.currentSituation.chiefComplaint}</span>
+                        </div>
+                      )}
+                      {medicalExtraction.currentSituation.presentingSymptoms.length > 0 && (
+                        <div>
+                          <span className="text-blue-200/80">Presenting Symptoms:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.currentSituation.presentingSymptoms.map((symptom, index) => (
+                              <span key={index} className="px-2 py-1 bg-blue-500/20 text-blue-200 rounded-full border border-blue-400/30">
+                                {symptom}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.currentSituation.acuteIssues.length > 0 && (
+                        <div>
+                          <span className="text-red-200/80">Acute Issues:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.currentSituation.acuteIssues.map((issue, index) => (
+                              <span key={index} className="px-2 py-1 bg-red-500/20 text-red-200 rounded-full border border-red-400/30">
+                                {issue}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.currentSituation.recentChanges.length > 0 && (
+                        <div>
+                          <span className="text-yellow-200/80">Recent Changes:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.currentSituation.recentChanges.map((change, index) => (
+                              <span key={index} className="px-2 py-1 bg-yellow-500/20 text-yellow-200 rounded-full border border-yellow-400/30">
+                                {change}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.currentSituation.painLevel > 0 && (
+                        <div>
+                          <span className="text-orange-200/80">Pain Level:</span>
+                          <div className="flex items-center space-x-3 mt-1">
+                            <div className="flex-1 bg-white/10 rounded-full h-2">
+                              <div 
+                                className="bg-gradient-to-r from-green-400 to-red-500 h-2 rounded-full transition-all duration-300"
+                                style={{ width: `${(medicalExtraction.currentSituation.painLevel / 10) * 100}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-orange-200 font-medium">{medicalExtraction.currentSituation.painLevel}/10</span>
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.currentSituation.symptomDuration && (
+                        <div>
+                          <span className="text-blue-200/80">Duration:</span>
+                          <span className="text-blue-200 ml-2">{medicalExtraction.currentSituation.symptomDuration}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Ongoing Care (Current Treatments & Monitoring) */}
+                {(medicalExtraction.ongoingCare.activeTreatments.length > 0 || 
+                  medicalExtraction.ongoingCare.medications.length > 0 || 
+                  medicalExtraction.ongoingCare.recentDiagnoses.length > 0 || 
+                  medicalExtraction.ongoingCare.monitoring.length > 0 || 
+                  Object.values(medicalExtraction.ongoingCare.vitalSigns).some(value => value)) && (
+                  <div className="mb-4 p-3 bg-purple-900/30 rounded-lg border border-purple-400/30">
+                    <h4 className="text-sm font-medium text-purple-300 mb-2">Ongoing Care</h4>
+                    <div className="space-y-2 text-xs">
+                      {medicalExtraction.ongoingCare.activeTreatments.length > 0 && (
+                        <div>
+                          <span className="text-purple-200/80">Active Treatments:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.ongoingCare.activeTreatments.map((treatment, index) => (
+                              <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-200 rounded-full border border-purple-400/30">
+                                {treatment}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.ongoingCare.medications.length > 0 && (
+                        <div>
+                          <span className="text-purple-200/80">Medications:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.ongoingCare.medications.map((medication, index) => (
+                              <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-200 rounded-full border border-purple-400/30">
+                                {medication}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.ongoingCare.recentDiagnoses.length > 0 && (
+                        <div>
+                          <span className="text-purple-200/80">Recent Diagnoses:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.ongoingCare.recentDiagnoses.map((diagnosis, index) => (
+                              <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-200 rounded-full border border-purple-400/30">
+                                {diagnosis}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.ongoingCare.monitoring.length > 0 && (
+                        <div>
+                          <span className="text-purple-200/80">Monitoring:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.ongoingCare.monitoring.map((monitor, index) => (
+                              <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-200 rounded-full border border-purple-400/30">
+                                {monitor}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {Object.values(medicalExtraction.ongoingCare.vitalSigns).some(value => value) && (
+                        <div>
+                          <span className="text-purple-200/80">Vital Signs:</span>
+                          <div className="grid grid-cols-2 gap-2 mt-1">
+                            {medicalExtraction.ongoingCare.vitalSigns.bloodPressure && (
+                              <div className="flex justify-between">
+                                <span className="text-purple-200/60">BP:</span>
+                                <span className="text-purple-200">{medicalExtraction.ongoingCare.vitalSigns.bloodPressure}</span>
+                              </div>
+                            )}
+                            {medicalExtraction.ongoingCare.vitalSigns.temperature && (
+                              <div className="flex justify-between">
+                                <span className="text-purple-200/60">Temp:</span>
+                                <span className="text-purple-200">{medicalExtraction.ongoingCare.vitalSigns.temperature}</span>
+                              </div>
+                            )}
+                            {medicalExtraction.ongoingCare.vitalSigns.heartRate && (
+                              <div className="flex justify-between">
+                                <span className="text-purple-200/60">HR:</span>
+                                <span className="text-purple-200">{medicalExtraction.ongoingCare.vitalSigns.heartRate}</span>
+                              </div>
+                            )}
+                            {medicalExtraction.ongoingCare.vitalSigns.weight && (
+                              <div className="flex justify-between">
+                                <span className="text-purple-200/60">Weight:</span>
+                                <span className="text-purple-200">{medicalExtraction.ongoingCare.vitalSigns.weight}</span>
+                              </div>
+                            )}
+                            {medicalExtraction.ongoingCare.vitalSigns.height && (
+                              <div className="flex justify-between">
+                                <span className="text-purple-200/60">Height:</span>
+                                <span className="text-purple-200">{medicalExtraction.ongoingCare.vitalSigns.height}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Assessment & Plan (Doctor's Findings & Recommendations) */}
+                {(medicalExtraction.assessmentAndPlan.diagnosis.length > 0 || 
+                  medicalExtraction.assessmentAndPlan.differentialDiagnosis.length > 0 || 
+                  medicalExtraction.assessmentAndPlan.treatmentPlan.length > 0 || 
+                  medicalExtraction.assessmentAndPlan.medicationsPrescribed.length > 0 || 
+                  medicalExtraction.assessmentAndPlan.recommendations.length > 0 || 
+                  medicalExtraction.assessmentAndPlan.followUp.length > 0 || 
+                  medicalExtraction.assessmentAndPlan.patientInstructions.length > 0) && (
+                  <div className="mb-4 p-3 bg-orange-900/30 rounded-lg border border-orange-400/30">
+                    <h4 className="text-sm font-medium text-orange-300 mb-2">Assessment & Plan</h4>
+                    <div className="space-y-2 text-xs">
+                      {medicalExtraction.assessmentAndPlan.diagnosis.length > 0 && (
+                        <div>
+                          <span className="text-orange-200/80">Diagnosis:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.assessmentAndPlan.diagnosis.map((diagnosis, index) => (
+                              <span key={index} className="px-2 py-1 bg-orange-500/20 text-orange-200 rounded-full border border-orange-400/30">
+                                {diagnosis}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.assessmentAndPlan.differentialDiagnosis.length > 0 && (
+                        <div>
+                          <span className="text-orange-200/80">Differential Diagnosis:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.assessmentAndPlan.differentialDiagnosis.map((diagnosis, index) => (
+                              <span key={index} className="px-2 py-1 bg-orange-500/20 text-orange-200 rounded-full border border-orange-400/30">
+                                {diagnosis}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.assessmentAndPlan.treatmentPlan.length > 0 && (
+                        <div>
+                          <span className="text-orange-200/80">Treatment Plan:</span>
+                          <ul className="mt-1 space-y-1">
+                            {medicalExtraction.assessmentAndPlan.treatmentPlan.map((treatment, index) => (
+                              <li key={index} className="text-orange-200 flex items-start space-x-2">
+                                <span className="text-orange-400 mt-1">•</span>
+                                <span>{treatment}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {medicalExtraction.assessmentAndPlan.medicationsPrescribed.length > 0 && (
+                        <div>
+                          <span className="text-orange-200/80">Medications Prescribed:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {medicalExtraction.assessmentAndPlan.medicationsPrescribed.map((medication, index) => (
+                              <span key={index} className="px-2 py-1 bg-orange-500/20 text-orange-200 rounded-full border border-orange-400/30">
+                                {medication}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {medicalExtraction.assessmentAndPlan.recommendations.length > 0 && (
+                        <div>
+                          <span className="text-orange-200/80">Recommendations:</span>
+                          <ul className="mt-1 space-y-1">
+                            {medicalExtraction.assessmentAndPlan.recommendations.map((rec, index) => (
+                              <li key={index} className="text-orange-200 flex items-start space-x-2">
+                                <span className="text-orange-400 mt-1">•</span>
+                                <span>{rec}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {medicalExtraction.assessmentAndPlan.followUp.length > 0 && (
+                        <div>
+                          <span className="text-orange-200/80">Follow-up:</span>
+                          <ul className="mt-1 space-y-1">
+                            {medicalExtraction.assessmentAndPlan.followUp.map((followUp, index) => (
+                              <li key={index} className="text-orange-200 flex items-start space-x-2">
+                                <span className="text-orange-400 mt-1">•</span>
+                                <span>{followUp}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {medicalExtraction.assessmentAndPlan.patientInstructions.length > 0 && (
+                        <div>
+                          <span className="text-orange-200/80">Patient Instructions:</span>
+                          <ul className="mt-1 space-y-1">
+                            {medicalExtraction.assessmentAndPlan.patientInstructions.map((instruction, index) => (
+                              <li key={index} className="text-orange-200 flex items-start space-x-2">
+                                <span className="text-orange-400 mt-1">•</span>
+                                <span>{instruction}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {(medicalExtraction.assessmentAndPlan.severity || medicalExtraction.assessmentAndPlan.urgency) && (
+                        <div className="flex items-center space-x-4">
+                          {medicalExtraction.assessmentAndPlan.severity && (
+                            <div className="flex items-center space-x-2">
+                              <span className="text-orange-200/80">Severity:</span>
+                              <div className={`w-3 h-3 rounded-full ${
+                                medicalExtraction.assessmentAndPlan.severity === 'critical' ? 'bg-red-400' :
+                                medicalExtraction.assessmentAndPlan.severity === 'high' ? 'bg-orange-400' :
+                                medicalExtraction.assessmentAndPlan.severity === 'medium' ? 'bg-yellow-400' : 'bg-green-400'
+                              }`}></div>
+                              <span className="text-orange-200 capitalize">{medicalExtraction.assessmentAndPlan.severity}</span>
+                            </div>
+                          )}
+                          {medicalExtraction.assessmentAndPlan.urgency && (
+                            <div className="flex items-center space-x-2">
+                              <span className="text-orange-200/80">Urgency:</span>
+                              <div className={`w-3 h-3 rounded-full ${
+                                medicalExtraction.assessmentAndPlan.urgency === 'emergency' ? 'bg-red-400' :
+                                medicalExtraction.assessmentAndPlan.urgency === 'urgent' ? 'bg-orange-400' : 'bg-green-400'
+                              }`}></div>
+                              <span className="text-orange-200 capitalize">{medicalExtraction.assessmentAndPlan.urgency}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+
+              </motion.div>
+            )}
+
+            {/* Medical Summary Display */}
+            {showMedicalSummary && medicalExtraction && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-6"
+              >
+                <MedicalSummary extraction={medicalExtraction} />
+              </motion.div>
+            )}
+            
+            {/* Quick Rating Prompt */}
+            {showRatingPrompt && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-4 p-4 bg-gradient-to-r from-purple-500/20 to-blue-500/20 rounded-lg border border-purple-400/30"
+              >
+                <div className="text-center">
+                  <p className="text-white font-medium mb-3">How was this translation?</p>
+                  <div className="flex justify-center space-x-2">
+                    {[1, 2, 3, 4, 5].map((rating) => (
+                      <motion.button
+                        key={rating}
+                        onClick={() => handleRating(showRatingPrompt, rating)}
+                        className="bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg p-2 transition-all duration-200"
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                      >
+                        <Star className="w-6 h-6 text-yellow-400" fill="currentColor" />
+                        <span className="block text-xs text-white mt-1">{rating}</span>
+                      </motion.button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setShowRatingPrompt(null)}
+                    className="text-white/60 hover:text-white text-sm mt-3 underline"
+                  >
+                    Skip rating
+                  </button>
+                </div>
+              </motion.div>
+            )}
           </div>
         </motion.div>
       </div>
@@ -1072,80 +2307,154 @@ function App() {
             </select>
           </div>
 
-          {/* API Key Management */}
-          <div className="space-y-4">
-            <h3 className="text-xl font-semibold text-white mb-4">API Key Management</h3>
-            
-            {/* Add New API Key */}
-            <div className="space-y-3">
-              <input
-                type="text"
-                placeholder="API Key Name"
-                value={newApiKey}
-                onChange={(e) => setNewApiKey(e.target.value)}
-                className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
-              />
-              <input
-                type="password"
-                placeholder="API Key"
-                id="apiKeyInput"
-                className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
-              />
-              <motion.button
-                onClick={async () => {
-                  const keyInput = document.getElementById('apiKeyInput') as HTMLInputElement
-                  if (newApiKey && keyInput.value) {
-                    await saveApiKey(newApiKey, keyInput.value)
-                    keyInput.value = ''
-                  } else {
-                    toast.error('Please enter both name and API key')
-                  }
-                }}
-                className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 px-6 rounded-lg transition-all duration-200"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                Save API Key
-              </motion.button>
-            </div>
-
-            {/* API Key Selection */}
-            <div>
-              <label className="block text-sm text-white/60 mb-2">Select API Key:</label>
-              <select
-                value={selectedApiKey}
-                onChange={(e) => setSelectedApiKey(e.target.value)}
-                className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
-              >
-                <option value="" className="bg-slate-800 text-white">Select an API key</option>
-                {Object.keys(apiKeys).map((name) => (
-                  <option key={name} value={name} className="bg-slate-800 text-white">
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Stored API Keys */}
-            <div>
-              <h4 className="text-lg font-medium text-white mb-3">Stored Keys:</h4>
-              <div className="space-y-2">
-                {Object.keys(apiKeys).map((name) => (
-                  <div key={name} className="flex justify-between items-center bg-white/5 rounded-lg px-4 py-3">
-                    <span className="text-white">{name}</span>
-                    <motion.button
-                      onClick={() => removeApiKey(name)}
-                      className="text-red-400 hover:text-red-300 transition-colors"
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
+          {/* API Key Management - Only show for cloud providers */}
+          {isCloudProvider(selectedProvider) && (
+            <div className="space-y-4">
+              <h3 className="text-xl font-semibold text-white mb-4">API Key Management</h3>
+              
+              {/* API Key Selection Dropdown */}
+              <div className="relative">
+                <label className="block text-sm text-white/60 mb-2">Select API Key:</label>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowApiKeyDropdown(!showApiKeyDropdown)}
+                    className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 flex items-center justify-between"
+                  >
+                    <span className={selectedApiKey ? 'text-white' : 'text-white/50'}>
+                      {selectedApiKey || 'Select an API key'}
+                    </span>
+                    <motion.div
+                      animate={{ rotate: showApiKeyDropdown ? 180 : 0 }}
+                      transition={{ duration: 0.2 }}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <X className="w-4 h-4" />
+                    </motion.div>
+                  </button>
+                  
+                  {/* Dropdown Menu */}
+                  {showApiKeyDropdown && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto"
+                    >
+                      {/* Add New API Key Option */}
+                      <button
+                        onClick={() => {
+                          setShowApiKeyDropdown(false)
+                          setShowApiKeyInput(true)
+                          setNewApiKeyName('')
+                          setNewApiKey('')
+                        }}
+                        className="w-full px-4 py-3 text-left text-green-400 hover:bg-white/10 border-b border-white/10 flex items-center space-x-2"
+                      >
+                        <span className="text-lg">+</span>
+                        <span>Add New API Key</span>
+                      </button>
+                      
+                      {/* Existing API Keys */}
+                      {getApiKeyNamesForProvider(selectedProvider).map((name) => (
+                        <div key={name} className="flex items-center justify-between px-4 py-3 hover:bg-white/10 border-b border-white/10 last:border-b-0">
+                          <button
+                            onClick={() => {
+                              setSelectedApiKey(name)
+                              setShowApiKeyDropdown(false)
+                            }}
+                            className={`flex-1 text-left ${selectedApiKey === name ? 'text-purple-400' : 'text-white'}`}
+                          >
+                            {name}
+                          </button>
+                          <div className="flex items-center space-x-2">
+                            <motion.button
+                              onClick={() => editApiKey(name)}
+                              className="text-blue-400 hover:text-blue-300 transition-colors p-1"
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
+                            >
+                              <Settings className="w-3 h-3" />
+                            </motion.button>
+                            <motion.button
+                              onClick={() => deleteApiKey(name)}
+                              className="text-red-400 hover:text-red-300 transition-colors p-1"
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </motion.button>
+                          </div>
+                        </div>
+                      ))}
+                      
+                      {getApiKeyNamesForProvider(selectedProvider).length === 0 && (
+                        <div className="px-4 py-3 text-white/60 text-center">
+                          No API keys saved for this provider
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </div>
+              </div>
+
+              {/* Add/Edit API Key Form */}
+              {showApiKeyInput && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="space-y-3 bg-white/5 rounded-lg p-4 border border-white/10"
+                >
+                  <h4 className="text-lg font-medium text-white">
+                    {newApiKeyName ? 'Edit API Key' : 'Add New API Key'}
+                  </h4>
+                  
+                  <input
+                    type="text"
+                    placeholder="API Key Name"
+                    value={newApiKeyName}
+                    onChange={(e) => setNewApiKeyName(e.target.value)}
+                    className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
+                  />
+                  
+                  <input
+                    type="password"
+                    placeholder="API Key"
+                    value={newApiKey}
+                    onChange={(e) => setNewApiKey(e.target.value)}
+                    className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
+                  />
+                  
+                  <div className="flex space-x-3">
+                    <motion.button
+                      onClick={async () => {
+                        if (newApiKeyName && newApiKey) {
+                          await saveApiKeyToStorage(newApiKeyName, newApiKey)
+                        } else {
+                          toast.error('Please enter both name and API key')
+                        }
+                      }}
+                      className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 px-6 rounded-lg transition-all duration-200"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      {newApiKeyName ? 'Update' : 'Save'} API Key
+                    </motion.button>
+                    
+                    <motion.button
+                      onClick={() => {
+                        setShowApiKeyInput(false)
+                        setNewApiKeyName('')
+                        setNewApiKey('')
+                      }}
+                      className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all duration-200"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      Cancel
                     </motion.button>
                   </div>
-                ))}
-              </div>
+                </motion.div>
+              )}
             </div>
-          </div>
+          )}
 
           {/* Provider Status */}
           <div className="space-y-4">
@@ -1228,6 +2537,94 @@ function App() {
                 </div>
               </div>
             </div>
+
+            {/* Translation Quality Analytics */}
+            <div className="space-y-3">
+              <h4 className="text-lg font-medium text-white">Translation Quality</h4>
+              <div className="bg-white/5 rounded-lg p-4">
+                <div className="space-y-2 text-sm text-white/80">
+                  <div className="flex justify-between">
+                    <span>Average Rating:</span>
+                    <span className="text-white font-medium">
+                      {translationQuality.averageRating}/5
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Total Ratings:</span>
+                    <span className="text-white font-medium">
+                      {translationQuality.totalRatings}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Quality Level:</span>
+                    <span className={`font-medium ${
+                      translationQuality.qualityLevel === 'excellent' ? 'text-green-400' :
+                      translationQuality.qualityLevel === 'good' ? 'text-blue-400' :
+                      translationQuality.qualityLevel === 'fair' ? 'text-yellow-400' : 'text-red-400'
+                    }`}>
+                      {translationQuality.qualityLevel.charAt(0).toUpperCase() + translationQuality.qualityLevel.slice(1)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Medical Extraction Analytics */}
+            {medicalExtraction && medicalExtraction.confidence > 0.3 && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-lg font-medium text-white">Medical Extraction</h4>
+                  <div className="flex items-center space-x-2">
+                    <div className={`w-2 h-2 rounded-full ${
+                      aiStatus === 'active' ? 'bg-green-400' : 'bg-gray-400'
+                    }`}></div>
+                    <span className="text-xs text-white/60">
+                      {aiStatus === 'active' ? 'AI-Powered' : 'Pattern-Based'}
+                    </span>
+                  </div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-4">
+                  <div className="space-y-2 text-sm text-white/80">
+                    <div className="flex justify-between">
+                      <span>Extraction Confidence:</span>
+                      <span className={`font-medium ${
+                        medicalExtraction.confidence >= 0.7 ? 'text-green-400' :
+                        medicalExtraction.confidence >= 0.4 ? 'text-yellow-400' : 'text-red-400'
+                      }`}>
+                        {Math.round(medicalExtraction.confidence * 100)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Pain Level:</span>
+                      <span className="text-white font-medium">
+                        {medicalExtraction.painLevel}/10
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Symptoms Detected:</span>
+                      <span className="text-white font-medium">
+                        {medicalExtraction.symptoms.length}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Medications Found:</span>
+                      <span className="text-white font-medium">
+                        {medicalExtraction.medications.length}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Severity Level:</span>
+                      <span className={`font-medium capitalize ${
+                        medicalExtraction.severity === 'high' ? 'text-red-400' :
+                        medicalExtraction.severity === 'medium' ? 'text-yellow-400' : 'text-green-400'
+                      }`}>
+                        {medicalExtraction.severity}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Privacy Controls */}
             <div className="space-y-3">
