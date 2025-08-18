@@ -24,7 +24,7 @@ interface MedicalExtraction {
   urgency: 'routine' | 'urgent' | 'emergency'
   confidence: number // 0-1
 
-  // New AI-powered intelligent categorization
+  // New AI-powered intelligent categorization (all optional with defaults)
   patientBackground?: {
     currentMedications: string[]
     allergies: string[]
@@ -64,6 +64,46 @@ interface MedicalExtraction {
     patientInstructions: string[]
     severity: 'low' | 'medium' | 'high' | 'critical'
     urgency: 'routine' | 'urgent' | 'emergency'
+  }
+}
+
+// Helper function to get safe defaults for optional fields
+export function getMedicalExtractionDefaults(): Required<Pick<MedicalExtraction, 'patientBackground' | 'currentSituation' | 'ongoingCare' | 'assessmentAndPlan'>> {
+  return {
+    patientBackground: {
+      currentMedications: [],
+      allergies: [],
+      pastMedicalHistory: [],
+      familyHistory: [],
+      lifestyle: [],
+      chronicConditions: []
+    },
+    currentSituation: {
+      chiefComplaint: '',
+      presentingSymptoms: [],
+      acuteIssues: [],
+      recentChanges: [],
+      painLevel: 0,
+      symptomDuration: ''
+    },
+    ongoingCare: {
+      activeTreatments: [],
+      medications: [],
+      recentDiagnoses: [],
+      monitoring: [],
+      vitalSigns: {}
+    },
+    assessmentAndPlan: {
+      diagnosis: [],
+      differentialDiagnosis: [],
+      treatmentPlan: [],
+      medicationsPrescribed: [],
+      recommendations: [],
+      followUp: [],
+      patientInstructions: [],
+      severity: 'low',
+      urgency: 'routine'
+    }
   }
 }
 

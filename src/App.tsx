@@ -15,9 +15,9 @@ import {
   WifiOff,
   Globe,
   X,
-  Type,
   Trash2,
-  Star
+  Star,
+  MessageSquare
 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import { sanitizeInput, encodeOutput } from './utils/security'
@@ -25,8 +25,7 @@ import {
   getAccessibilityProps, 
   ScreenReader, 
   handleKeyboardNavigation,
-  createSkipLink,
-  LANGUAGE_NAMES 
+  createSkipLink
 } from './utils/accessibility.tsx'
 import { secureStorage, migrateExistingKeys } from './utils/secureStorage'
 import { hipaaCompliance, createPrivacyConsentDialog } from './utils/hipaa'
@@ -93,8 +92,19 @@ function App() {
   // Medical extraction state
   const [medicalExtraction, setMedicalExtraction] = useState<MedicalExtraction | null>(null)
   const [showMedicalSummary, setShowMedicalSummary] = useState(false)
-  const [extractionConfidence, setExtractionConfidence] = useState(0)
   const [aiStatus, setAiStatus] = useState<'active' | 'inactive' | 'checking'>('checking')
+  
+  // Real-time conversation summary state
+  const [conversationSummary, setConversationSummary] = useState<{
+    keyPoints: string[]
+    medicalFindings: string[]
+    recommendations: string[]
+    urgency: 'routine' | 'urgent' | 'emergency'
+    nextSteps: string[]
+    confidence: number
+    lastUpdated: Date | null
+  } | null>(null)
+  const [showConversationSummary, setShowConversationSummary] = useState(false)
 
   // Load API keys from secure storage on component mount
   useEffect(() => {
@@ -110,7 +120,7 @@ function App() {
             toast.success(`Migrated ${migration.migrated} API keys to secure storage`)
           }
           if (migration.failed > 0) {
-            toast.warning(`Some API keys could not be migrated: ${migration.errors.join(', ')}`)
+            toast.error(`Some API keys could not be migrated: ${migration.errors.join(', ')}`)
           }
           
           // Load encrypted keys
@@ -173,7 +183,7 @@ function App() {
           hipaaCompliance.logAuditEntry('privacy_consent_given')
         },
         () => {
-          toast.info('Using minimal privacy settings')
+          toast.success('Using minimal privacy settings')
           hipaaCompliance.logAuditEntry('privacy_consent_declined')
         }
       )
@@ -246,7 +256,7 @@ function App() {
     }
     
     if (sanitizationResult.warnings.length > 0) {
-      toast.warning(`Input warnings: ${sanitizationResult.warnings.join(', ')}`)
+      toast.error(`Input warnings: ${sanitizationResult.warnings.join(', ')}`)
     }
     
     const translatedText = await translateText(sanitizationResult.sanitized, currentLanguage)
@@ -577,7 +587,7 @@ function App() {
           }
           
           if (sanitizationResult.warnings.length > 0) {
-            toast.warning(`Speech input warnings: ${sanitizationResult.warnings.join(', ')}`)
+            toast.error(`Speech input warnings: ${sanitizationResult.warnings.join(', ')}`)
           }
           
           // Translate the sanitized transcript
@@ -763,8 +773,83 @@ function App() {
     checkAiAvailability()
   }, [checkAiAvailability])
 
+  // Real-time conversation summary with AI
+  const generateConversationSummary = async (messages: Message[]) => {
+    try {
+      if (!selectedApiKey || !apiKeys[selectedApiKey]) {
+        return null
+      }
+
+      const conversationText = messages.map(msg => `${msg.isDoctor ? 'Doctor' : 'Patient'}: ${msg.text}`).join('\n')
+
+      const summaryPrompt = `You are a medical AI assistant. Generate a concise, real-time summary of this medical conversation including:
+
+1. **Key Points**: Main topics discussed (max 3 points)
+2. **Medical Findings**: Clinical observations and symptoms mentioned (max 3 findings)
+3. **Recommendations**: Medical advice or suggestions given (max 3 recommendations)
+4. **Urgency Level**: routine/urgent/emergency based on symptoms and context
+5. **Next Steps**: Immediate actions needed (max 3 steps)
+6. **Confidence**: 0-1 score based on clarity and completeness
+
+Format as JSON:
+{
+  "keyPoints": ["point1", "point2", "point3"],
+  "medicalFindings": ["finding1", "finding2", "finding3"],
+  "recommendations": ["rec1", "rec2", "rec3"],
+  "urgency": "routine|urgent|emergency",
+  "nextSteps": ["step1", "step2", "step3"],
+  "confidence": 0.85
+}
+
+Conversation:
+${conversationText}
+
+Provide a focused, actionable summary for clinical decision-making.`
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKeys[selectedApiKey]}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            { role: 'system', content: 'You are a medical AI assistant specializing in real-time conversation analysis.' },
+            { role: 'user', content: summaryPrompt }
+          ],
+          temperature: 0.2,
+          max_tokens: 800
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('AI summary generation failed')
+      }
+
+      const data = await response.json()
+      const aiResponse = data.choices[0].message.content.trim()
+      
+      // Parse AI response
+      const summary = JSON.parse(aiResponse)
+      
+      return {
+        keyPoints: summary.keyPoints || [],
+        medicalFindings: summary.medicalFindings || [],
+        recommendations: summary.recommendations || [],
+        urgency: summary.urgency || 'routine',
+        nextSteps: summary.nextSteps || [],
+        confidence: summary.confidence || 0.7,
+        lastUpdated: new Date()
+      }
+    } catch (error) {
+      console.error('AI conversation summary failed:', error)
+      return null
+    }
+  }
+
   // AI-powered medical extraction
-    const extractMedicalWithAI = async (messages: Message[]) => {
+  const extractMedicalWithAI = async (messages: Message[]) => {
     try {
       const conversationText = messages.map(msg => `${msg.isDoctor ? 'Doctor' : 'Patient'}: ${msg.text}`).join('\n')
 
@@ -971,7 +1056,7 @@ Return a comprehensive JSON object with all medical information intelligently ca
     }
   }
 
-  // Update medical extraction when messages change
+  // Update medical extraction and conversation summary when messages change
   useEffect(() => {
     if (messages.length > 0) {
       const extractMedical = async () => {
@@ -984,7 +1069,6 @@ Return a comprehensive JSON object with all medical information intelligently ca
         }
         
         setMedicalExtraction(extraction)
-        setExtractionConfidence(extraction.confidence)
         
         // Log medical extraction for audit trail
         if (extraction.confidence > 0.3) {
@@ -999,7 +1083,18 @@ Return a comprehensive JSON object with all medical information intelligently ca
         }
       }
       
+      const generateSummary = async () => {
+        // Generate conversation summary every 3 messages or when conversation is substantial
+        if (messages.length % 3 === 0 || messages.length >= 5) {
+          const summary = await generateConversationSummary(messages)
+          if (summary) {
+            setConversationSummary(summary)
+          }
+        }
+      }
+      
       extractMedical()
+      generateSummary()
     }
   }, [messages, aiStatus, apiKeys.openai])
 
@@ -1586,6 +1681,23 @@ Return a comprehensive JSON object with all medical information intelligently ca
                     <div className={`w-2 h-2 rounded-full ${
                       medicalExtraction.severity === 'high' ? 'bg-red-400' :
                       medicalExtraction.severity === 'medium' ? 'bg-yellow-400' : 'bg-green-400'
+                    }`}></div>
+                  </motion.button>
+                )}
+
+                {/* Conversation Summary Toggle */}
+                {conversationSummary && conversationSummary.confidence > 0.5 && (
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setShowConversationSummary(!showConversationSummary)}
+                    className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 hover:from-green-500/30 hover:to-emerald-500/30 backdrop-blur-sm border border-green-400/30 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-2 text-sm sm:text-base"
+                  >
+                    <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <span>Conversation Summary</span>
+                    <div className={`w-2 h-2 rounded-full ${
+                      conversationSummary.urgency === 'emergency' ? 'bg-red-400' :
+                      conversationSummary.urgency === 'urgent' ? 'bg-orange-400' : 'bg-green-400'
                     }`}></div>
                   </motion.button>
                 )}
@@ -2227,6 +2339,99 @@ Return a comprehensive JSON object with all medical information intelligently ca
                 className="mt-6"
               >
                 <MedicalSummary extraction={medicalExtraction} />
+              </motion.div>
+            )}
+
+            {/* Conversation Summary Display */}
+            {showConversationSummary && conversationSummary && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-6"
+              >
+                <div className="bg-gradient-to-r from-green-900/50 to-emerald-900/50 backdrop-blur-sm rounded-lg p-4 border border-green-400/20">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-white">Real-time Conversation Summary</h3>
+                    <div className="flex items-center space-x-2">
+                      <div className={`w-3 h-3 rounded-full ${
+                        conversationSummary.urgency === 'emergency' ? 'bg-red-400' :
+                        conversationSummary.urgency === 'urgent' ? 'bg-orange-400' : 'bg-green-400'
+                      }`}></div>
+                      <span className="text-xs text-white/60 capitalize">{conversationSummary.urgency}</span>
+                      <span className="text-xs text-white/40">
+                        {Math.round(conversationSummary.confidence * 100)}% confidence
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Key Points */}
+                    {conversationSummary.keyPoints.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-medium text-green-300">Key Points</h4>
+                        <ul className="space-y-1">
+                          {conversationSummary.keyPoints.map((point, index) => (
+                            <li key={index} className="text-green-200 text-sm flex items-start space-x-2">
+                              <span className="text-green-400 mt-1">•</span>
+                              <span>{point}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Medical Findings */}
+                    {conversationSummary.medicalFindings.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-medium text-blue-300">Medical Findings</h4>
+                        <ul className="space-y-1">
+                          {conversationSummary.medicalFindings.map((finding, index) => (
+                            <li key={index} className="text-blue-200 text-sm flex items-start space-x-2">
+                              <span className="text-blue-400 mt-1">•</span>
+                              <span>{finding}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Recommendations */}
+                    {conversationSummary.recommendations.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-medium text-purple-300">Recommendations</h4>
+                        <ul className="space-y-1">
+                          {conversationSummary.recommendations.map((rec, index) => (
+                            <li key={index} className="text-purple-200 text-sm flex items-start space-x-2">
+                              <span className="text-purple-400 mt-1">•</span>
+                              <span>{rec}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Next Steps */}
+                    {conversationSummary.nextSteps.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-medium text-orange-300">Next Steps</h4>
+                        <ul className="space-y-1">
+                          {conversationSummary.nextSteps.map((step, index) => (
+                            <li key={index} className="text-orange-200 text-sm flex items-start space-x-2">
+                              <span className="text-orange-400 mt-1">•</span>
+                              <span>{step}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+
+                  {conversationSummary.lastUpdated && (
+                    <div className="mt-4 pt-3 border-t border-green-400/20 text-xs text-green-200/60">
+                      Last updated: {conversationSummary.lastUpdated.toLocaleTimeString()}
+                    </div>
+                  )}
+                </div>
               </motion.div>
             )}
             
