@@ -158,7 +158,7 @@ class SecureStorage {
       }
       
       const result = btoa(JSON.stringify(encryptedData))
-      console.log('🔐 Encryption successful')
+      console.log('🔐 Encryption successful, data length:', result.length)
       return result
     } catch (error) {
       console.error('Encryption failed:', error)
@@ -173,7 +173,7 @@ class SecureStorage {
     }
 
     try {
-      console.log('🔓 Decrypting data...')
+      console.log('🔓 Decrypting data, input length:', encryptedString.length)
       const encryptedData: EncryptedData = JSON.parse(atob(encryptedString))
       
       // Version check
@@ -182,13 +182,13 @@ class SecureStorage {
       }
       
       const decrypted = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: new Uint8Array(atob(encryptedData.iv), c => c.charCodeAt(0)) },
+        { name: 'AES-GCM', iv: Uint8Array.from(atob(encryptedData.iv), c => c.charCodeAt(0)) },
         this.encryptionKey,
-        new Uint8Array(atob(encryptedData.data), c => c.charCodeAt(0))
+        Uint8Array.from(atob(encryptedData.data), c => c.charCodeAt(0))
       )
       
       const result = new TextDecoder().decode(decrypted)
-      console.log('🔓 Decryption successful')
+      console.log('🔓 Decryption successful, data length:', result.length)
       return result
     } catch (error) {
       console.error('Decryption failed:', error)
@@ -216,6 +216,7 @@ class SecureStorage {
       // Store encrypted data
       const storageKey = `${this.STORAGE_PREFIX}${sanitizedName}`
       localStorage.setItem(storageKey, encryptedKey)
+      console.log('💾 Stored encrypted data, key:', storageKey, 'length:', encryptedKey.length)
       
       return { success: true }
     } catch (error) {
@@ -233,6 +234,8 @@ class SecureStorage {
       if (!encryptedData) {
         return null
       }
+      
+      console.log('📖 Retrieved encrypted data, length:', encryptedData.length)
       
       // Try to decrypt with current key
       try {

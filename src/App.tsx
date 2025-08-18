@@ -153,39 +153,10 @@ function App() {
   useEffect(() => {
     const initializeSecureStorage = async () => {
       try {
-        // Clear any corrupted data first
-        console.log('🧹 Clearing corrupted data...')
-        const allKeys = Object.keys(localStorage)
-        const encryptedKeys = allKeys.filter(key => key.startsWith('encrypted_'))
-        const oldKeys = allKeys.filter(key => key.includes('api_key') || key.includes('translator'))
-        
-        // Remove all potentially corrupted keys
-        const keysToRemove = [...encryptedKeys, ...oldKeys]
-        keysToRemove.forEach(key => {
-          console.log(`🧹 Removing potentially corrupted key: ${key}`)
-          localStorage.removeItem(key)
-        })
-        
         // Initialize secure storage
         const initialized = await secureStorage.initialize()
         
         if (initialized) {
-          // Test encryption/decryption
-          console.log('🧪 Testing encryption...')
-          try {
-            const testResult = await secureStorage.storeApiKey('test_key', 'test_value')
-            if (testResult.success) {
-              const retrieved = await secureStorage.getApiKey('test_key')
-              if (retrieved === 'test_value') {
-                console.log('✅ Encryption test passed')
-                await secureStorage.removeApiKey('test_key')
-              } else {
-                console.log('❌ Encryption test failed')
-              }
-            }
-          } catch (error) {
-            console.log('❌ Encryption test failed:', error)
-          }
           // Migrate existing keys if any
           const migration = await migrateExistingKeys()
           if (migration.migrated > 0) {
