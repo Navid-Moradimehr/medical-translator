@@ -170,8 +170,10 @@ function App() {
     const loadSavedCases = () => {
       try {
         const saved = localStorage.getItem('medical_translator_saved_cases')
+        console.log('📂 Loading saved cases from localStorage:', saved)
         if (saved) {
           const cases = JSON.parse(saved)
+          console.log('📂 Parsed cases:', cases)
           setSavedCases(cases)
         }
       } catch (error) {
@@ -180,6 +182,21 @@ function App() {
     }
     loadSavedCases()
   }, [])
+
+  // Function to refresh saved cases from localStorage
+  const refreshSavedCases = () => {
+    try {
+      const saved = localStorage.getItem('medical_translator_saved_cases')
+      console.log('🔄 Refreshing saved cases from localStorage:', saved)
+      if (saved) {
+        const cases = JSON.parse(saved)
+        console.log('🔄 Refreshed cases:', cases)
+        setSavedCases(cases)
+      }
+    } catch (error) {
+      console.error('Failed to refresh saved cases:', error)
+    }
+  }
 
   // Save cases to localStorage whenever savedCases changes
   useEffect(() => {
@@ -197,15 +214,25 @@ function App() {
       conversationSummary: conversationSummary
     }
 
+    console.log('💾 Saving case:', caseData)
+
     if (overwriteId) {
       // Update existing case
-      setSavedCases(prev => prev.map(case_ => 
-        case_.id === overwriteId ? caseData : case_
-      ))
+      setSavedCases(prev => {
+        const updated = prev.map(case_ => 
+          case_.id === overwriteId ? caseData : case_
+        )
+        console.log('📝 Updated cases:', updated)
+        return updated
+      })
       toast.success('Case updated successfully!')
     } else {
       // Save new case
-      setSavedCases(prev => [caseData, ...prev])
+      setSavedCases(prev => {
+        const updated = [caseData, ...prev]
+        console.log('📝 New cases list:', updated)
+        return updated
+      })
       toast.success('Case saved successfully!')
     }
     
@@ -216,14 +243,20 @@ function App() {
 
   // Load a saved case
   const loadCase = (caseId: string) => {
+    console.log('📂 Loading case with ID:', caseId)
+    console.log('📂 Available cases:', savedCases)
     const caseToLoad = savedCases.find(case_ => case_.id === caseId)
     if (caseToLoad) {
+      console.log('📂 Found case to load:', caseToLoad)
       setMessages(caseToLoad.messages)
       setMedicalExtraction(caseToLoad.medicalExtraction)
       setConversationSummary(caseToLoad.conversationSummary)
       setShowLoadDialog(false)
       setSelectedFileToLoad('')
       toast.success(`Loaded case: ${caseToLoad.name}`)
+    } else {
+      console.error('❌ Case not found:', caseId)
+      toast.error('Case not found!')
     }
   }
 
@@ -1691,6 +1724,17 @@ Return a comprehensive JSON object with all medical information intelligently ca
               animate={{ opacity: 1, x: 0 }}
               className="flex items-center space-x-3 sm:space-x-4"
             >
+              {/* Hamburger Menu Button */}
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setShowHamburgerMenu(!showHamburgerMenu)}
+                className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white p-2 rounded-xl transition-all duration-200"
+                aria-label="Open menu"
+              >
+                <Menu className="w-5 h-5" />
+              </motion.button>
+              
               <div className="relative">
                 <Stethoscope className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
                 <motion.div
@@ -1707,17 +1751,6 @@ Return a comprehensive JSON object with all medical information intelligently ca
                 </h1>
                 <p className="text-purple-200 text-xs sm:text-sm">AI-Powered Medical Communication</p>
               </div>
-              
-              {/* Hamburger Menu Button */}
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setShowHamburgerMenu(!showHamburgerMenu)}
-                className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white p-2 rounded-xl transition-all duration-200 ml-4"
-                aria-label="Open menu"
-              >
-                <Menu className="w-5 h-5" />
-              </motion.button>
             </motion.div>
             
             <div className="flex items-center justify-center sm:justify-end space-x-2 sm:space-x-4">
@@ -1777,6 +1810,7 @@ Return a comprehensive JSON object with all medical information intelligently ca
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => {
+                refreshSavedCases()
                 setShowSaveDialog(true)
                 setShowHamburgerMenu(false)
               }}
@@ -1791,6 +1825,7 @@ Return a comprehensive JSON object with all medical information intelligently ca
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => {
+                refreshSavedCases()
                 setShowLoadDialog(true)
                 setShowHamburgerMenu(false)
               }}
@@ -1820,6 +1855,7 @@ Return a comprehensive JSON object with all medical information intelligently ca
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => {
+                refreshSavedCases()
                 setShowDeleteDialog(true)
                 setShowHamburgerMenu(false)
               }}
