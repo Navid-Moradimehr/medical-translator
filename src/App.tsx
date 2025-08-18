@@ -171,10 +171,12 @@ function App() {
       try {
         const saved = localStorage.getItem('medical_translator_saved_cases')
         console.log('📂 Loading saved cases from localStorage:', saved)
-        if (saved) {
+        if (saved && saved !== '[]') {
           const cases = JSON.parse(saved)
           console.log('📂 Parsed cases:', cases)
-          setSavedCases(cases)
+          if (Array.isArray(cases) && cases.length > 0) {
+            setSavedCases(cases)
+          }
         }
       } catch (error) {
         console.error('Failed to load saved cases:', error)
@@ -188,17 +190,19 @@ function App() {
     try {
       const saved = localStorage.getItem('medical_translator_saved_cases')
       console.log('🔄 Refreshing saved cases from localStorage:', saved)
-      if (saved) {
+      if (saved && saved !== '[]') {
         const cases = JSON.parse(saved)
         console.log('🔄 Refreshed cases:', cases)
-        setSavedCases(cases)
+        if (Array.isArray(cases) && cases.length > 0) {
+          setSavedCases(cases)
+        } else {
+          console.log('🔄 No valid cases found in localStorage')
+        }
       } else {
         console.log('🔄 No saved cases found in localStorage')
-        setSavedCases([])
       }
     } catch (error) {
       console.error('Failed to refresh saved cases:', error)
-      setSavedCases([])
     }
   }
 
@@ -225,8 +229,13 @@ function App() {
   useEffect(() => {
     console.log('💾 Saving cases to localStorage:', savedCases)
     try {
-      localStorage.setItem('medical_translator_saved_cases', JSON.stringify(savedCases))
-      console.log('✅ Cases saved to localStorage successfully')
+      // Only save if we have actual cases or if this is the initial load
+      if (savedCases.length > 0 || localStorage.getItem('medical_translator_saved_cases') === null) {
+        localStorage.setItem('medical_translator_saved_cases', JSON.stringify(savedCases))
+        console.log('✅ Cases saved to localStorage successfully')
+      } else {
+        console.log('⏭️ Skipping save - no cases to save and not initial load')
+      }
     } catch (error) {
       console.error('❌ Failed to save cases to localStorage:', error)
     }
@@ -277,7 +286,14 @@ function App() {
     const caseToLoad = savedCases.find(case_ => case_.id === caseId)
     if (caseToLoad) {
       console.log('📂 Found case to load:', caseToLoad)
-      setMessages(caseToLoad.messages)
+      
+      // Convert timestamp strings back to Date objects for messages
+      const messagesWithDates = caseToLoad.messages.map(msg => ({
+        ...msg,
+        timestamp: new Date(msg.timestamp)
+      }))
+      
+      setMessages(messagesWithDates)
       setMedicalExtraction(caseToLoad.medicalExtraction)
       setConversationSummary(caseToLoad.conversationSummary)
       setShowLoadDialog(false)
