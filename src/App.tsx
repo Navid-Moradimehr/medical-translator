@@ -106,60 +106,14 @@ function App() {
   } | null>(null)
   const [showConversationSummary, setShowConversationSummary] = useState(false)
 
-  // Store original language setup for bidirectional switching
-  const [originalLanguageSetup, setOriginalLanguageSetup] = useState<{
-    doctorSpeakIn: string
-    doctorTranslateTo: string
-    patientSpeakIn: string
-    patientTranslateTo: string
-  } | null>(null)
-
-  // Initialize language setup when component mounts or languages change
-  useEffect(() => {
-    if (!originalLanguageSetup) {
-      setOriginalLanguageSetup({
-        doctorSpeakIn: 'en-US',
-        doctorTranslateTo: 'fa',
-        patientSpeakIn: 'fa-IR',
-        patientTranslateTo: 'en'
-      })
-    }
-  }, [originalLanguageSetup])
-
-  // Auto-switch languages when role changes (bidirectional)
+  // Simple language switching: just swap the languages when role changes
   const autoSwitchLanguages = (newIsDoctor: boolean) => {
-    if (!originalLanguageSetup) return
-
-    if (newIsDoctor) {
-      // Doctor mode: Use doctor's language setup
-      setSourceLanguage(originalLanguageSetup.doctorSpeakIn)
-      setCurrentLanguage(originalLanguageSetup.doctorTranslateTo)
-    } else {
-      // Patient mode: Use patient's language setup
-      setSourceLanguage(originalLanguageSetup.patientSpeakIn)
-      setCurrentLanguage(originalLanguageSetup.patientTranslateTo)
-    }
-  }
-
-  // Update language setup when user manually changes languages
-  const updateLanguageSetup = (newSourceLanguage: string, newTargetLanguage: string) => {
-    if (!originalLanguageSetup) return
-
-    if (isDoctor) {
-      // Update doctor's language setup
-      setOriginalLanguageSetup({
-        ...originalLanguageSetup,
-        doctorSpeakIn: newSourceLanguage,
-        doctorTranslateTo: newTargetLanguage
-      })
-    } else {
-      // Update patient's language setup
-      setOriginalLanguageSetup({
-        ...originalLanguageSetup,
-        patientSpeakIn: newSourceLanguage,
-        patientTranslateTo: newTargetLanguage
-      })
-    }
+    // Simply swap the current source and target languages
+    const currentSource = sourceLanguage
+    const currentTarget = currentLanguage
+    
+    setSourceLanguage(currentTarget)
+    setCurrentLanguage(currentSource)
   }
 
   // Enhanced role switching with automatic language switching
@@ -1749,33 +1703,13 @@ Return a comprehensive JSON object with all medical information intelligently ca
 
               {/* Language Selectors */}
               <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 lg:space-x-8 mb-6 sm:mb-8">
-                {/* Language Setup Indicator */}
-                {originalLanguageSetup && (
-                  <div className="text-center mb-4">
-                    <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3 border border-white/20">
-                      <p className="text-xs text-white/60 mb-2">Language Setup</p>
-                      <div className="flex items-center space-x-4 text-xs">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-blue-300">Doctor:</span>
-                          <span className="text-white">{originalLanguageSetup.doctorSpeakIn.split('-')[0].toUpperCase()} → {originalLanguageSetup.doctorTranslateTo.toUpperCase()}</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-green-300">Patient:</span>
-                          <span className="text-white">{originalLanguageSetup.patientSpeakIn.split('-')[0].toUpperCase()} → {originalLanguageSetup.patientTranslateTo.toUpperCase()}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+
                 {/* Source Language */}
                 <div className="text-center w-full sm:w-auto">
                   <label className="block text-xs sm:text-sm text-white/60 mb-2" id="source-language-label">Speak in:</label>
                   <select
                     value={sourceLanguage}
-                    onChange={(e) => {
-                      setSourceLanguage(e.target.value)
-                      updateLanguageSetup(e.target.value, currentLanguage)
-                    }}
+                    onChange={(e) => setSourceLanguage(e.target.value)}
                     aria-labelledby="source-language-label"
                     aria-describedby="source-language-help"
                     className="w-full max-w-[200px] sm:w-auto bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 sm:px-6 py-2 sm:py-3 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 text-sm sm:text-base"
@@ -1796,10 +1730,7 @@ Return a comprehensive JSON object with all medical information intelligently ca
                   <label className="block text-xs sm:text-sm text-white/60 mb-2" id="target-language-label">Translate to:</label>
                   <select
                     value={currentLanguage}
-                    onChange={(e) => {
-                      setCurrentLanguage(e.target.value)
-                      updateLanguageSetup(sourceLanguage, e.target.value)
-                    }}
+                    onChange={(e) => setCurrentLanguage(e.target.value)}
                     aria-labelledby="target-language-label"
                     aria-describedby="language-help"
                     {...getAccessibilityProps('language-selector', { currentLanguage })}
