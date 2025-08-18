@@ -825,8 +825,10 @@ function App() {
 
       const conversationText = messages.map(msg => `${msg.isDoctor ? 'Doctor' : 'Patient'}: ${msg.text}`).join('\n')
 
-      // Detect doctor's language from source language setting
-      const doctorLanguage = sourceLanguage.split('-')[0] // e.g., 'en-US' -> 'en'
+      // Detect doctor's language based on current role
+      // When isDoctor=true: doctor's language is in sourceLanguage (speak in)
+      // When isDoctor=false: doctor's language is in currentLanguage (translate to)
+      const doctorLanguage = isDoctor ? sourceLanguage.split('-')[0] : currentLanguage
       const languageNames: Record<string, string> = {
         'en': 'English',
         'es': 'Spanish', 
@@ -912,8 +914,10 @@ Provide a focused, actionable summary for clinical decision-making in ${doctorLa
     try {
       const conversationText = messages.map(msg => `${msg.isDoctor ? 'Doctor' : 'Patient'}: ${msg.text}`).join('\n')
 
-      // Detect doctor's language from source language setting
-      const doctorLanguage = sourceLanguage.split('-')[0] // e.g., 'en-US' -> 'en'
+      // Detect doctor's language based on current role
+      // When isDoctor=true: doctor's language is in sourceLanguage (speak in)
+      // When isDoctor=false: doctor's language is in currentLanguage (translate to)
+      const doctorLanguage = isDoctor ? sourceLanguage.split('-')[0] : currentLanguage
       const languageNames: Record<string, string> = {
         'en': 'English',
         'es': 'Spanish', 
