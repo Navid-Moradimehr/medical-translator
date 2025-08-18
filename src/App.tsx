@@ -100,6 +100,8 @@ function App() {
   const [aiStatus, setAiStatus] = useState<'active' | 'inactive' | 'checking'>('checking')
   const [aiMode, setAiMode] = useState<'basic' | 'ai'>('basic')
   const [activeModel, setActiveModel] = useState<string>('')
+  const [showMedicalSummaryModal, setShowMedicalSummaryModal] = useState(false)
+  const [showConversationSummaryModal, setShowConversationSummaryModal] = useState(false)
   
   // Real-time conversation summary state
   const [conversationSummary, setConversationSummary] = useState<{
@@ -2129,12 +2131,12 @@ Return a comprehensive JSON object with all medical information intelligently ca
                   <span>Clear</span>
                 </motion.button>
                 
-                {/* Medical Summary Toggle */}
+                {/* Medical Summary Button */}
                 {medicalExtraction && medicalExtraction.confidence > 0.3 && (
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowMedicalSummary(!showMedicalSummary)}
+                    onClick={() => setShowMedicalSummaryModal(true)}
                     className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 hover:from-blue-500/30 hover:to-purple-500/30 backdrop-blur-sm border border-blue-400/30 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-2 text-sm sm:text-base"
                   >
                     <Stethoscope className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -2146,12 +2148,12 @@ Return a comprehensive JSON object with all medical information intelligently ca
                   </motion.button>
                 )}
 
-                {/* Conversation Summary Toggle */}
+                {/* Conversation Summary Button */}
                 {conversationSummary && conversationSummary.confidence > 0.5 && (
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowConversationSummary(!showConversationSummary)}
+                    onClick={() => setShowConversationSummaryModal(true)}
                     className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 hover:from-green-500/30 hover:to-emerald-500/30 backdrop-blur-sm border border-green-400/30 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-2 text-sm sm:text-base"
                   >
                     <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -3586,6 +3588,302 @@ Return a comprehensive JSON object with all medical information intelligently ca
             >
               <X className="w-5 h-5" />
             </button>
+          </motion.div>
+        </motion.div>
+      )}
+
+      {/* Medical Summary Modal */}
+      {showMedicalSummaryModal && medicalExtraction && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowMedicalSummaryModal(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-6 max-w-2xl w-full max-h-[80vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-white flex items-center space-x-2">
+                <Stethoscope className="w-5 h-5 text-blue-400" />
+                <span>Medical Summary</span>
+                <div className={`w-3 h-3 rounded-full ${
+                  medicalExtraction.severity === 'high' ? 'bg-red-400' :
+                  medicalExtraction.severity === 'medium' ? 'bg-yellow-400' : 'bg-green-400'
+                }`}></div>
+              </h3>
+              <button
+                onClick={() => setShowMedicalSummaryModal(false)}
+                className="text-white/70 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto max-h-[60vh] space-y-4">
+              {/* Pain Level */}
+              <div className="bg-white/5 rounded-lg p-4">
+                <h4 className="text-lg font-medium text-white mb-2">Pain Level</h4>
+                <div className="flex items-center space-x-2">
+                  <div className="flex-1 bg-white/10 rounded-full h-2">
+                    <div 
+                      className="bg-gradient-to-r from-green-400 to-red-500 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${(medicalExtraction.painLevel / 10) * 100}%` }}
+                    ></div>
+                  </div>
+                  <span className="text-white font-medium">{medicalExtraction.painLevel}/10</span>
+                </div>
+              </div>
+
+              {/* Symptoms */}
+              {medicalExtraction.symptoms.length > 0 && (
+                <div className="bg-white/5 rounded-lg p-4">
+                  <h4 className="text-lg font-medium text-white mb-2">Symptoms Detected</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {medicalExtraction.symptoms.map((symptom, index) => (
+                      <span key={index} className="bg-red-500/20 text-red-300 px-3 py-1 rounded-full text-sm">
+                        {symptom}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Medications */}
+              {medicalExtraction.medications.length > 0 && (
+                <div className="bg-white/5 rounded-lg p-4">
+                  <h4 className="text-lg font-medium text-white mb-2">Medications Mentioned</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {medicalExtraction.medications.map((medication, index) => (
+                      <span key={index} className="bg-blue-500/20 text-blue-300 px-3 py-1 rounded-full text-sm">
+                        {medication}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Medical History */}
+              {medicalExtraction.medicalHistory && (
+                <div className="bg-white/5 rounded-lg p-4">
+                  <h4 className="text-lg font-medium text-white mb-2">Medical History</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {medicalExtraction.medicalHistory.conditions.length > 0 && (
+                      <div>
+                        <h5 className="text-sm font-medium text-white/80 mb-1">Conditions</h5>
+                        <div className="flex flex-wrap gap-1">
+                          {medicalExtraction.medicalHistory.conditions.map((condition, index) => (
+                            <span key={index} className="bg-purple-500/20 text-purple-300 px-2 py-1 rounded text-xs">
+                              {condition}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {medicalExtraction.medicalHistory.allergies.length > 0 && (
+                      <div>
+                        <h5 className="text-sm font-medium text-white/80 mb-1">Allergies</h5>
+                        <div className="flex flex-wrap gap-1">
+                          {medicalExtraction.medicalHistory.allergies.map((allergy, index) => (
+                            <span key={index} className="bg-orange-500/20 text-orange-300 px-2 py-1 rounded text-xs">
+                              {allergy}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Vital Signs */}
+              {medicalExtraction.vitalSigns && Object.keys(medicalExtraction.vitalSigns).length > 0 && (
+                <div className="bg-white/5 rounded-lg p-4">
+                  <h4 className="text-lg font-medium text-white mb-2">Vital Signs</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {Object.entries(medicalExtraction.vitalSigns).map(([key, value]) => (
+                      <div key={key} className="text-center">
+                        <div className="text-white/60 text-xs capitalize">{key.replace(/([A-Z])/g, ' $1')}</div>
+                        <div className="text-white font-medium">{value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Diagnosis */}
+              {medicalExtraction.diagnosis.length > 0 && (
+                <div className="bg-white/5 rounded-lg p-4">
+                  <h4 className="text-lg font-medium text-white mb-2">Diagnosis</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {medicalExtraction.diagnosis.map((diagnosis, index) => (
+                      <span key={index} className="bg-green-500/20 text-green-300 px-3 py-1 rounded-full text-sm">
+                        {diagnosis}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Recommendations */}
+              {medicalExtraction.recommendations.length > 0 && (
+                <div className="bg-white/5 rounded-lg p-4">
+                  <h4 className="text-lg font-medium text-white mb-2">Recommendations</h4>
+                  <ul className="space-y-2">
+                    {medicalExtraction.recommendations.map((recommendation, index) => (
+                      <li key={index} className="text-white/90 flex items-start space-x-2">
+                        <span className="text-blue-400 mt-1">•</span>
+                        <span>{recommendation}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Confidence and Severity */}
+              <div className="bg-white/5 rounded-lg p-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="text-center">
+                    <div className="text-white/60 text-sm">Confidence</div>
+                    <div className={`text-lg font-bold ${
+                      medicalExtraction.confidence >= 0.7 ? 'text-green-400' :
+                      medicalExtraction.confidence >= 0.4 ? 'text-yellow-400' : 'text-red-400'
+                    }`}>
+                      {Math.round(medicalExtraction.confidence * 100)}%
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white/60 text-sm">Severity</div>
+                    <div className={`text-lg font-bold capitalize ${
+                      medicalExtraction.severity === 'high' ? 'text-red-400' :
+                      medicalExtraction.severity === 'medium' ? 'text-yellow-400' : 'text-green-400'
+                    }`}>
+                      {medicalExtraction.severity}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white/60 text-sm">Urgency</div>
+                    <div className={`text-lg font-bold capitalize ${
+                      medicalExtraction.urgency === 'emergency' ? 'text-red-400' :
+                      medicalExtraction.urgency === 'urgent' ? 'text-orange-400' : 'text-green-400'
+                    }`}>
+                      {medicalExtraction.urgency}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+
+      {/* Conversation Summary Modal */}
+      {showConversationSummaryModal && conversationSummary && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowConversationSummaryModal(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-6 max-w-2xl w-full max-h-[80vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-white flex items-center space-x-2">
+                <MessageSquare className="w-5 h-5 text-green-400" />
+                <span>Conversation Summary</span>
+                <div className={`w-3 h-3 rounded-full ${
+                  conversationSummary.urgency === 'emergency' ? 'bg-red-400' :
+                  conversationSummary.urgency === 'urgent' ? 'bg-orange-400' : 'bg-green-400'
+                }`}></div>
+              </h3>
+              <button
+                onClick={() => setShowConversationSummaryModal(false)}
+                className="text-white/70 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto max-h-[60vh] space-y-4">
+              {/* Key Points */}
+              {conversationSummary.keyPoints && conversationSummary.keyPoints.length > 0 && (
+                <div className="bg-white/5 rounded-lg p-4">
+                  <h4 className="text-lg font-medium text-white mb-2">Key Points</h4>
+                  <ul className="space-y-2">
+                    {conversationSummary.keyPoints.map((point, index) => (
+                      <li key={index} className="text-white/90 flex items-start space-x-2">
+                        <span className="text-green-400 mt-1">•</span>
+                        <span>{point}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Action Items */}
+              {conversationSummary.actionItems && conversationSummary.actionItems.length > 0 && (
+                <div className="bg-white/5 rounded-lg p-4">
+                  <h4 className="text-lg font-medium text-white mb-2">Action Items</h4>
+                  <ul className="space-y-2">
+                    {conversationSummary.actionItems.map((item, index) => (
+                      <li key={index} className="text-white/90 flex items-start space-x-2">
+                        <span className="text-blue-400 mt-1">→</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Follow-up */}
+              {conversationSummary.followUp && (
+                <div className="bg-white/5 rounded-lg p-4">
+                  <h4 className="text-lg font-medium text-white mb-2">Follow-up</h4>
+                  <p className="text-white/90">{conversationSummary.followUp}</p>
+                </div>
+              )}
+
+              {/* Summary Stats */}
+              <div className="bg-white/5 rounded-lg p-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="text-center">
+                    <div className="text-white/60 text-sm">Confidence</div>
+                    <div className={`text-lg font-bold ${
+                      conversationSummary.confidence >= 0.7 ? 'text-green-400' :
+                      conversationSummary.confidence >= 0.4 ? 'text-yellow-400' : 'text-red-400'
+                    }`}>
+                      {Math.round(conversationSummary.confidence * 100)}%
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white/60 text-sm">Urgency</div>
+                    <div className={`text-lg font-bold capitalize ${
+                      conversationSummary.urgency === 'emergency' ? 'text-red-400' :
+                      conversationSummary.urgency === 'urgent' ? 'text-orange-400' : 'text-green-400'
+                    }`}>
+                      {conversationSummary.urgency}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white/60 text-sm">Messages</div>
+                    <div className="text-lg font-bold text-white">
+                      {messages.length}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </motion.div>
         </motion.div>
       )}
