@@ -370,7 +370,7 @@ Confidence: [0-1]`
 
   private parseMedicalAnalysis(aiResponse: string): AIMedicalAnalysis {
     // This is a simplified parser - in production, you'd want more robust parsing
-    const defaults = {
+    const defaults: AIMedicalAnalysis = {
       patientBackground: {
         currentMedications: [],
         allergies: [],
@@ -405,7 +405,8 @@ Confidence: [0-1]`
         severity: 'low' as const,
         urgency: 'routine' as const
       },
-      confidence: 0.7
+      confidence: 0.7,
+      lastUpdated: new Date().toISOString()
     }
 
     // Extract information using regex patterns

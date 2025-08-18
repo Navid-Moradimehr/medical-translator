@@ -333,19 +333,66 @@ class MedicalExtractionService {
     }
   }
 
-  // Extract from conversation
+  // Extract medical information from conversation
   static extractFromConversation(messages: Array<{ text: string; isDoctor: boolean }>): MedicalExtraction {
-    const allText = messages.map(msg => msg.text).join(' ')
-    const extraction = this.extractMedicalInfo(allText)
-    
-    // Enhance with conversation context
-    const patientMessages = messages.filter(msg => !msg.isDoctor)
     const doctorMessages = messages.filter(msg => msg.isDoctor)
+    // Removed unused patientMessages variable
     
-    // If doctor asked specific questions, enhance extraction
+    // Initialize extraction with defaults
+    const extraction: MedicalExtraction = {
+      painLevel: 0,
+      symptoms: [],
+      medications: [],
+      medicalHistory: {
+        conditions: [],
+        surgeries: [],
+        allergies: [],
+        familyHistory: [],
+        lifestyle: []
+      },
+      vitalSigns: {},
+      diagnosis: [],
+      severity: 'low',
+      recommendations: [],
+      urgency: 'routine',
+      confidence: 0,
+      patientBackground: undefined,
+      currentSituation: undefined,
+      ongoingCare: undefined,
+      assessmentAndPlan: undefined
+    }
+    
+    // Extract pain level
     if (doctorMessages.some(msg => msg.text.toLowerCase().includes('pain'))) {
+      extraction.painLevel = this.extractPainLevel(messages.map(msg => msg.text).join(' '))
       extraction.confidence = Math.min(extraction.confidence + 0.1, 1)
     }
+    
+    // Extract symptoms
+    const allText = messages.map(msg => msg.text).join(' ')
+    extraction.symptoms = this.extractSymptoms(allText)
+    extraction.confidence = Math.min(extraction.confidence + 0.1, 1)
+    
+    // Extract medications
+    extraction.medications = this.extractMedications(allText)
+    extraction.confidence = Math.min(extraction.confidence + 0.1, 1)
+    
+    // Extract medical history
+    extraction.medicalHistory = this.extractMedicalHistory(allText)
+    extraction.confidence = Math.min(extraction.confidence + 0.1, 1)
+    
+    // Determine severity
+    extraction.severity = this.determineSeverity(extraction.painLevel, extraction.symptoms)
+    
+    // Generate recommendations
+    extraction.recommendations = this.generateRecommendations(extraction)
+    
+    // Calculate confidence based on extraction quality
+    const confidence = Math.min(
+      (extraction.symptoms.length * 0.1 + extraction.medications.length * 0.15 + extraction.painLevel * 0.05 + extraction.medicalHistory.conditions.length * 0.2),
+      1
+    )
+    extraction.confidence = Math.round(confidence * 100) / 100
     
     return extraction
   }

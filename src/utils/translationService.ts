@@ -96,7 +96,7 @@ Medical Terms: [comma-separated medical terms]`
         translatedText: translationMatch?.[1]?.trim() || request.text,
         confidence: confidenceMatch ? parseInt(confidenceMatch[1]) / 100 : 0.8,
         provider: this.name,
-        medicalTerms: medicalTermsMatch?.[1]?.split(',').map(t => t.trim()) || []
+        medicalTerms: medicalTermsMatch?.[1]?.split(',').map((t: string) => t.trim()) || []
       }
     } catch (error) {
       throw new Error(`OpenAI translation failed: ${error}`)

@@ -106,6 +106,42 @@ function App() {
   } | null>(null)
   const [showConversationSummary, setShowConversationSummary] = useState(false)
 
+  // Language mapping for automatic switching
+  const languageMapping: Record<string, { speakIn: string; translateTo: string }> = {
+    'en': { speakIn: 'en-US', translateTo: 'fa' },
+    'fa': { speakIn: 'fa-IR', translateTo: 'en' },
+    'es': { speakIn: 'es-ES', translateTo: 'en' },
+    'pt': { speakIn: 'pt-BR', translateTo: 'en' },
+    'ar': { speakIn: 'ar-SA', translateTo: 'en' },
+    'zh': { speakIn: 'zh-CN', translateTo: 'en' },
+    'fr': { speakIn: 'fr-FR', translateTo: 'en' },
+    'de': { speakIn: 'de-DE', translateTo: 'en' }
+  }
+
+  // Auto-switch languages when role changes
+  const autoSwitchLanguages = (newIsDoctor: boolean) => {
+    const currentSourceLang = sourceLanguage.split('-')[0] // e.g., 'en-US' -> 'en'
+    const currentTargetLang = currentLanguage // e.g., 'fa'
+    
+    if (newIsDoctor) {
+      // Doctor mode: Switch to English for speaking, current target language for translation
+      setSourceLanguage('en-US')
+      setCurrentLanguage(currentTargetLang)
+    } else {
+      // Patient mode: Switch to current target language for speaking, English for translation
+      setSourceLanguage(`${currentTargetLang}-${currentTargetLang.toUpperCase()}`) // e.g., 'fa-IR'
+      setCurrentLanguage('en')
+    }
+  }
+
+  // Enhanced role switching with automatic language switching
+  const switchRole = (newIsDoctor: boolean) => {
+    setIsDoctor(newIsDoctor)
+    autoSwitchLanguages(newIsDoctor)
+    ScreenReader.announceRoleSwitch(newIsDoctor)
+    hipaaCompliance.logAuditEntry('role_switch', { role: newIsDoctor ? 'doctor' : 'patient' })
+  }
+
   // Load API keys from secure storage on component mount
   useEffect(() => {
     const initializeSecureStorage = async () => {
@@ -1551,22 +1587,11 @@ Return a comprehensive JSON object with all medical information intelligently ca
               <div className="flex items-center justify-center mb-6 sm:mb-8">
                 <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-2 border border-white/20">
                   <div className="flex items-center space-x-1 sm:space-x-2">
-                    <motion.button
+                                        <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={() => {
-                        setIsDoctor(true)
-                        // Auto-switch to Doctor language setup (English to Persian)
-                        setSourceLanguage('en-US')
-                        setCurrentLanguage('fa-IR')
-                        ScreenReader.announceRoleSwitch(true)
-                        hipaaCompliance.logAuditEntry('role_switch', { role: 'doctor' })
-                      }}
-                                              onKeyDown={(e) => handleKeyboardNavigation(e, () => {
-                          setIsDoctor(true)
-                          ScreenReader.announceRoleSwitch(true)
-                          hipaaCompliance.logAuditEntry('role_switch', { role: 'doctor' })
-                        })}
+                      onClick={() => switchRole(true)}
+                      onKeyDown={(e) => handleKeyboardNavigation(e, () => switchRole(true))}
                       {...getAccessibilityProps('role-switch', { isDoctor: true })}
                       className={`flex items-center space-x-2 sm:space-x-3 px-3 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-300 text-sm sm:text-base ${
                         isDoctor 
@@ -1580,19 +1605,8 @@ Return a comprehensive JSON object with all medical information intelligently ca
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={() => {
-                        setIsDoctor(false)
-                        // Auto-switch to Patient language setup (Persian to English)
-                        setSourceLanguage('fa-IR')
-                        setCurrentLanguage('en-US')
-                        ScreenReader.announceRoleSwitch(false)
-                        hipaaCompliance.logAuditEntry('role_switch', { role: 'patient' })
-                      }}
-                                              onKeyDown={(e) => handleKeyboardNavigation(e, () => {
-                          setIsDoctor(false)
-                          ScreenReader.announceRoleSwitch(false)
-                          hipaaCompliance.logAuditEntry('role_switch', { role: 'patient' })
-                        })}
+                      onClick={() => switchRole(false)}
+                      onKeyDown={(e) => handleKeyboardNavigation(e, () => switchRole(false))}
                       {...getAccessibilityProps('role-switch', { isDoctor: false })}
                       className={`flex items-center space-x-2 sm:space-x-3 px-3 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-300 text-sm sm:text-base ${
                         !isDoctor 
