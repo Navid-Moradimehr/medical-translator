@@ -158,7 +158,7 @@ export const Header = ({
                 setShowSaveDialog(true)
                 setShowHamburgerMenu(false)
               }}
-              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-white"
+              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-gray-800"
             >
               <Save className="w-5 h-5" />
               <span>Save Case</span>
@@ -173,7 +173,7 @@ export const Header = ({
                 setShowLoadDialog(true)
                 setShowHamburgerMenu(false)
               }}
-              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-white"
+              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-gray-800"
             >
               <FolderOpen className="w-5 h-5" />
               <span>Load Case</span>
@@ -188,7 +188,7 @@ export const Header = ({
                   clearConversation()
                 }
               }}
-              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-white"
+              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-gray-800"
             >
               <FileText className="w-5 h-5" />
               <span>Clear Conversation</span>
@@ -203,7 +203,7 @@ export const Header = ({
                 setShowDeleteDialog(true)
                 setShowHamburgerMenu(false)
               }}
-              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-white"
+              className="w-full flex items-center space-x-3 p-3 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 text-gray-800"
             >
               <Trash className="w-5 h-5" />
               <span>Delete Cases</span>
