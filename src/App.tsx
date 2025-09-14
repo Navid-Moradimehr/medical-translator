@@ -63,7 +63,7 @@ function App() {
   const [sourceLanguage, setSourceLanguage] = useState('en-US') // Source language for speech recognition
   const [isDoctor, setIsDoctor] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
-  const [isOnline] = useState(true)
+  // const [isOnline] = useState(true) // Removed - no longer needed
   const [providers] = useState<Provider[]>([
     { id: 'openai', name: 'OpenAI GPT-3.5', type: 'cloud', status: 'available' },
     { id: 'mymemory', name: 'MyMemory (Free)', type: 'api', status: 'available' },
@@ -96,6 +96,12 @@ function App() {
   const [activeModel, setActiveModel] = useState<string>('')
   const [showMedicalSummaryModal, setShowMedicalSummaryModal] = useState(false)
   const [showConversationSummaryModal, setShowConversationSummaryModal] = useState(false)
+  const [showRatingPrompt, setShowRatingPrompt] = useState<string | null>(null)
+  const [translationQuality, setTranslationQuality] = useState<{
+    averageRating: number
+    totalRatings: number
+    qualityLevel: 'poor' | 'fair' | 'good' | 'excellent'
+  }>({ averageRating: 0, totalRatings: 0, qualityLevel: 'good' })
   
   // Real-time conversation summary state
   const [conversationSummary, setConversationSummary] = useState<{
@@ -131,7 +137,7 @@ function App() {
   }>>([])
 
   // Simple language switching: just swap the languages when role changes
-  const autoSwitchLanguages = (newIsDoctor: boolean) => {
+  const autoSwitchLanguages = (_newIsDoctor: boolean) => {
     // Get the base language codes for proper swapping
     const currentSourceBase = sourceLanguage.split('-')[0] // e.g., 'en-US' -> 'en'
     const currentTargetBase = currentLanguage // e.g., 'es'
