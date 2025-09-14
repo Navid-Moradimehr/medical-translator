@@ -1,8 +1,6 @@
 import { motion } from 'framer-motion'
 import { 
   Settings, 
-  Wifi, 
-  WifiOff, 
   Sparkles,
   Menu,
   Save,
@@ -13,7 +11,6 @@ import {
 import { getAccessibilityProps, handleKeyboardNavigation } from '../utils/accessibility'
 
 interface HeaderProps {
-  isOnline: boolean
   aiStatus: 'active' | 'inactive' | 'checking'
   aiMode: 'basic' | 'ai'
   activeModel: string
@@ -30,7 +27,6 @@ interface HeaderProps {
 }
 
 export const Header = ({
-  isOnline,
   aiStatus,
   aiMode,
   activeModel,
@@ -75,11 +71,11 @@ export const Header = ({
           </div>
 
           {/* Right side - Status and Controls */}
-          <div className="flex items-center space-x-2 sm:space-x-4">
+          <div className="flex items-center space-x-1 sm:space-x-4">
             {/* AI Status and Mode Toggle */}
-            <div className="flex items-center space-x-2 sm:space-x-4">
+            <div className="flex items-center space-x-1 sm:space-x-4">
               {/* AI Status Indicator */}
-              <div className="flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-3 sm:px-4 py-2">
+              <div className="hidden sm:flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-3 sm:px-4 py-2">
                 <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full ${
                   aiStatus === 'active' ? 'bg-green-400 animate-pulse' :
                   aiStatus === 'inactive' ? 'bg-gray-400' : 'bg-yellow-400 animate-pulse'
@@ -127,17 +123,6 @@ export const Header = ({
               )}
             </div>
             
-            {/* Online Status */}
-            <div className="flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-3 sm:px-4 py-2">
-              {isOnline ? (
-                <Wifi className="w-3 h-3 sm:w-4 sm:h-4 text-green-400" />
-              ) : (
-                <WifiOff className="w-3 h-3 sm:w-4 sm:h-4 text-red-400" />
-              )}
-              <span className="text-white text-xs sm:text-sm">
-                {isOnline ? 'Online' : 'Offline'}
-              </span>
-            </div>
             
             {/* Settings Button */}
             <motion.button
@@ -149,7 +134,7 @@ export const Header = ({
               className="bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-white/20 text-white px-2 sm:px-6 py-2 sm:py-3 rounded-xl transition-all duration-200 flex items-center space-x-1 sm:space-x-2"
             >
               <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span className="text-xs sm:text-base">Settings</span>
+              <span className="hidden sm:inline text-xs sm:text-base">Settings</span>
             </motion.button>
           </div>
         </div>
@@ -161,7 +146,7 @@ export const Header = ({
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -20 }}
-          className="absolute top-20 left-4 z-50 bg-white/10 backdrop-blur-xl border border-white/20 rounded-xl shadow-2xl min-w-64 hamburger-menu"
+          className="fixed top-20 left-4 z-[9999] bg-white/95 backdrop-blur-xl border border-white/30 rounded-xl shadow-2xl min-w-64 max-w-80 hamburger-menu"
         >
           <div className="p-4 space-y-2">
             {/* Save Option */}

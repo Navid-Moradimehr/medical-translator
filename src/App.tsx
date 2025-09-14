@@ -81,16 +81,16 @@ function App() {
   const [manualText, setManualText] = useState<string>('')
   const [showManualInput, setShowManualInput] = useState(false)
   const [messageRatings, setMessageRatings] = useState<Record<string, number>>({})
-  const [showRatingPrompt, setShowRatingPrompt] = useState<string | null>(null)
-  const [translationQuality, setTranslationQuality] = useState<{
-    averageRating: number
-    totalRatings: number
-    qualityLevel: 'poor' | 'fair' | 'good' | 'excellent'
-  }>({ averageRating: 0, totalRatings: 0, qualityLevel: 'good' })
+  // const [showRatingPrompt, setShowRatingPrompt] = useState<string | null>(null)
+  // const [translationQuality, setTranslationQuality] = useState<{
+  //   averageRating: number
+  //   totalRatings: number
+  //   qualityLevel: 'poor' | 'fair' | 'good' | 'excellent'
+  // }>({ averageRating: 0, totalRatings: 0, qualityLevel: 'good' })
   
   // Medical extraction state
   const [medicalExtraction, setMedicalExtraction] = useState<MedicalExtraction | null>(null)
-  const [showMedicalSummary, setShowMedicalSummary] = useState(false)
+  // const [showMedicalSummary, setShowMedicalSummary] = useState(false)
   const [aiStatus, setAiStatus] = useState<'active' | 'inactive' | 'checking'>('checking')
   const [aiMode, setAiMode] = useState<'basic' | 'ai'>('basic')
   const [activeModel, setActiveModel] = useState<string>('')
@@ -107,7 +107,7 @@ function App() {
     confidence: number
     lastUpdated: Date | null
   } | null>(null)
-  const [showConversationSummary, setShowConversationSummary] = useState(false)
+  // const [showConversationSummary, setShowConversationSummary] = useState(false)
 
   // Hamburger menu and saved cases state
   const [showHamburgerMenu, setShowHamburgerMenu] = useState(false)
@@ -1068,6 +1068,9 @@ function App() {
 
   const playAudio = (text: string) => {
     if ('speechSynthesis' in window) {
+      // Cancel any ongoing speech synthesis to prevent conflicts
+      speechSynthesis.cancel()
+      
       const utterance = new SpeechSynthesisUtterance(text)
       const languageMap: Record<string, string> = {
         'es': 'es-ES',
@@ -1080,7 +1083,18 @@ function App() {
       }
       utterance.lang = languageMap[currentLanguage] || 'en-US'
       utterance.rate = 0.9
+      
+      // Add error handling and logging
+      utterance.onerror = (event) => {
+        console.error('Speech synthesis error:', event)
+      }
+      
+      utterance.onend = () => {
+        console.log('Speech synthesis completed for text:', text.substring(0, 50) + '...')
+      }
+      
       speechSynthesis.speak(utterance)
+      console.log('Playing audio for text:', text.substring(0, 50) + '...', 'Language:', utterance.lang)
     }
   }
 
@@ -2024,7 +2038,6 @@ Return a comprehensive JSON object with all medical information intelligently ca
       
       {/* Header Component */}
       <Header
-        isOnline={isOnline}
         aiStatus={aiStatus}
         aiMode={aiMode}
         activeModel={activeModel}
@@ -2107,32 +2120,32 @@ Return a comprehensive JSON object with all medical information intelligently ca
 
        {/* Live Medical Summary */}
        {medicalExtraction && medicalExtraction.confidence > 0.3 && (
-         <motion.div 
-           initial={{ opacity: 0, y: 20 }}
-           animate={{ opacity: 1, y: 0 }}
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
            transition={{ delay: 0.3 }}
-           className="mt-8"
-         >
-           <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-2xl">
-             <div className="flex items-center space-x-3 mb-6">
+          className="mt-8"
+        >
+          <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-2xl">
+            <div className="flex items-center space-x-3 mb-6">
                <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
                <h3 className="text-xl font-semibold text-white">Live Medical Summary</h3>
                <div className="flex items-center space-x-2 ml-auto">
                  <div className={`w-3 h-3 rounded-full ${
                    medicalExtraction.severity === 'high' ? 'bg-red-400' :
                    medicalExtraction.severity === 'medium' ? 'bg-yellow-400' : 'bg-green-400'
-                 }`}></div>
+                        }`}></div>
                  <span className="text-xs text-white/60 capitalize">{medicalExtraction.severity} severity</span>
-                 <div className="flex items-center space-x-1 ml-2">
-                   <div className={`w-2 h-2 rounded-full ${
-                     aiStatus === 'active' ? 'bg-green-400' : 'bg-gray-400'
-                   }`}></div>
-                   <span className="text-xs text-white/60">
-                     {aiStatus === 'active' ? 'AI' : 'Pattern'}
-                   </span>
-                 </div>
-               </div>
-             </div>
+                  <div className="flex items-center space-x-1 ml-2">
+                    <div className={`w-2 h-2 rounded-full ${
+                      aiStatus === 'active' ? 'bg-green-400' : 'bg-gray-400'
+                    }`}></div>
+                    <span className="text-xs text-white/60">
+                      {aiStatus === 'active' ? 'AI' : 'Pattern'}
+                    </span>
+                  </div>
+                </div>
+                          </div>
              
              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                {/* Pain Level */}
@@ -2140,20 +2153,20 @@ Return a comprehensive JSON object with all medical information intelligently ca
                  <div className="space-y-2">
                    <h4 className="text-sm font-medium text-white">Pain Level</h4>
                    <div className="flex items-center space-x-3">
-                     <div className="flex-1 bg-white/10 rounded-full h-2">
-                       <div 
+                            <div className="flex-1 bg-white/10 rounded-full h-2">
+                              <div 
                          className={`h-2 rounded-full transition-all duration-300 ${
                            medicalExtraction.painLevel <= 3 ? 'bg-green-400' :
                            medicalExtraction.painLevel <= 6 ? 'bg-yellow-400' : 'bg-red-400'
                          }`}
                          style={{ width: `${(medicalExtraction.painLevel / 10) * 100}%` }}
-                       ></div>
-                     </div>
+                              ></div>
+                            </div>
                      <span className="text-sm text-white font-medium">{medicalExtraction.painLevel}/10</span>
-                   </div>
-                 </div>
-               )}
-               
+                    </div>
+                  </div>
+                )}
+
                {/* Symptoms */}
                {medicalExtraction.symptoms.length > 0 && (
                  <div className="space-y-2">
@@ -2162,17 +2175,17 @@ Return a comprehensive JSON object with all medical information intelligently ca
                      {medicalExtraction.symptoms.slice(0, 5).map((symptom, index) => (
                        <span key={index} className="px-2 py-1 bg-blue-500/20 text-blue-200 text-xs rounded-full border border-blue-400/30">
                          {symptom}
-                       </span>
-                     ))}
+                              </span>
+                            ))}
                      {medicalExtraction.symptoms.length > 5 && (
                        <span className="px-2 py-1 bg-blue-500/20 text-blue-200 text-xs rounded-full border border-blue-400/30">
                          +{medicalExtraction.symptoms.length - 5} more
-                       </span>
-                     )}
-                   </div>
-                 </div>
-               )}
-               
+                              </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                {/* Medications */}
                {medicalExtraction.medications.length > 0 && (
                  <div className="space-y-2">
@@ -2181,16 +2194,16 @@ Return a comprehensive JSON object with all medical information intelligently ca
                      {medicalExtraction.medications.slice(0, 3).map((medication, index) => (
                        <span key={index} className="px-2 py-1 bg-purple-500/20 text-purple-200 text-xs rounded-full border border-purple-400/30">
                          {medication}
-                       </span>
-                     ))}
+                              </span>
+                            ))}
                      {medicalExtraction.medications.length > 3 && (
                        <span className="px-2 py-1 bg-purple-500/20 text-purple-200 text-xs rounded-full border border-purple-400/30">
                          +{medicalExtraction.medications.length - 3} more
-                       </span>
+                              </span>
                      )}
-                   </div>
-                 </div>
-               )}
+                          </div>
+                        </div>
+                      )}
                
                {/* Recommendations */}
                {medicalExtraction.recommendations.length > 0 && (
@@ -2200,18 +2213,18 @@ Return a comprehensive JSON object with all medical information intelligently ca
                      {medicalExtraction.recommendations.slice(0, 3).map((rec, index) => (
                        <div key={index} className="text-xs text-white/80 flex items-start space-x-2">
                          <span className="text-yellow-400 mt-1">•</span>
-                         <span>{rec}</span>
-                       </div>
+                                <span>{rec}</span>
+                        </div>
                      ))}
-                   </div>
-                 </div>
-               )}
-             </div>
+                        </div>
+                        </div>
+                      )}
+                            </div>
              
              {/* Confidence Level */}
              <div className="flex items-center justify-between pt-4 border-t border-white/20 mt-6">
                <span className="text-xs text-white/60">Extraction Confidence</span>
-               <div className="flex items-center space-x-2">
+                            <div className="flex items-center space-x-2">
                  <div className="w-16 bg-white/10 rounded-full h-2">
                    <div 
                      className={`h-2 rounded-full transition-all duration-300 ${
@@ -2220,15 +2233,15 @@ Return a comprehensive JSON object with all medical information intelligently ca
                      }`}
                      style={{ width: `${medicalExtraction.confidence * 100}%` }}
                    ></div>
-                 </div>
+                            </div>
                  <span className="text-xs text-white font-medium">{Math.round(medicalExtraction.confidence * 100)}%</span>
-               </div>
-             </div>
-           </div>
-         </motion.div>
-       )}
-            </div>
-            
+                        </div>
+                    </div>
+                  </div>
+              </motion.div>
+            )}
+      </div>
+
       {/* Settings Panel Component */}
       <SettingsPanel
         showSettings={showSettings}

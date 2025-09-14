@@ -1,56 +1,164 @@
-# Medical Translator MVP
+# Medical Translator - AI-Powered Medical Communication Platform
 
-A React-based, AI-powered medical translation application for doctor-patient communication.
+A comprehensive web-based medical translation and communication platform designed to facilitate seamless doctor-patient interactions across language barriers. This application provides real-time translation, medical analysis, and conversation management with AI assistance.
 
-## Features
+## Live Demo
 
-- **Speech Recognition**: Real-time voice-to-text using Web Speech API
-- **Translation Services**: Multiple providers (MyMemory free, OpenAI, Google, DeepL)
-- **Text-to-Speech**: Browser-based voice output
-- **Multi-language Support**: English, Spanish, Portuguese, Persian, Arabic, Chinese
-- **Role Switching**: Toggle between Doctor and Patient modes
-- **Conversation History**: Real-time chat interface
-- **Responsive Design**: Works on desktop and mobile
-- **API Key Management**: Secure storage and management of translation API keys
+**Access the application:** https://navid-moradimehr.github.io/medical-translator/
+
+## Key Features
+
+### Core Translation Capabilities
+- **Real-time Speech Recognition**: Convert spoken words to text in multiple languages
+- **Bidirectional Translation**: Translate between any language pair using multiple AI providers
+- **Text-to-Speech**: Hear translated text spoken in the target language
+- **Manual Text Input**: Type messages directly when speech recognition is unavailable
+
+### AI-Powered Medical Analysis
+- **Live Medical Summary**: Automatic extraction and display of medical information during conversations
+- **Medical Data Categorization**: Organizes information into:
+  - Patient Background
+  - Current Situation
+  - Ongoing Care
+  - Assessment & Plan
+- **Symptom Detection**: Identifies and categorizes patient symptoms
+- **Medication Tracking**: Extracts and lists mentioned medications
+- **Pain Level Assessment**: Quantifies patient-reported pain levels
+- **Severity Classification**: Categorizes medical situations by urgency
+- **Treatment Recommendations**: Provides AI-generated medical recommendations
+
+### Role-Based Interface
+- **Doctor Mode**: Optimized interface for healthcare providers
+- **Patient Mode**: Simplified interface for patients
+- **Automatic Language Switching**: Languages automatically swap when switching roles
+- **Context-Aware AI**: AI responses adapt based on the selected role
+
+### Conversation Management
+- **Save Conversations**: Store complete conversation sessions locally
+- **Load Previous Cases**: Retrieve and continue previous medical consultations
+- **Delete Cases**: Remove outdated or completed cases
+- **New Case Creation**: Start fresh conversations with clean slate
+- **Conversation Summary**: Generate comprehensive summaries of entire consultations
+
+### Advanced Settings & Configuration
+- **Multiple AI Providers**: Support for OpenAI, Google, DeepL, and MyMemory
+- **API Key Management**: Secure storage and management of API credentials
+- **Provider-Specific Keys**: Separate API keys for different translation services
+- **AI Mode Toggle**: Switch between basic translation and AI-enhanced features
+- **Language Selection**: Choose from extensive language options
+
+### HIPAA Compliance Features
+- **Data Encryption**: All medical data encrypted using AES-256-GCM
+- **Local Storage**: Sensitive data stored locally, not transmitted unnecessarily
+- **Audit Logging**: Track data access and modifications
+- **Privacy Controls**: Configurable privacy settings for data handling
+- **Consent Management**: User consent tracking for data processing
+- **Breach Detection**: Monitoring for potential data security issues
+
+### Accessibility Features
+- **Screen Reader Support**: Full compatibility with assistive technologies
+- **Keyboard Navigation**: Complete keyboard accessibility
+- **High Contrast Mode**: Enhanced visibility options
+- **Voice Announcements**: Audio feedback for important actions
+- **Skip Links**: Quick navigation for keyboard users
 
 ## How to Use
 
-### For Users:
-1. Open the app in any browser
-2. Grant microphone permission when prompted
-3. Select source language (what you'll speak in)
-4. Select target language (what you want to translate to)
-5. Click microphone button and speak
-6. Click microphone again to stop and see translation
-7. Translation will be displayed and spoken back
+### Getting Started
+1. **Access the Application**: Open the web application in your browser
+2. **Configure Settings**: Click the settings icon to configure your preferred translation provider and API keys
+3. **Select Languages**: Choose the languages for "speak in" and "translate to"
+4. **Choose Role**: Select either Doctor or Patient mode based on your role
 
-### For Developers:
-```bash
-# Install dependencies
-npm install
+### Basic Translation Workflow
+1. **Start Recording**: Click the microphone button to begin speech recognition
+2. **Speak Clearly**: Talk in your selected language
+3. **Review Text**: Check the transcribed text appears correctly
+4. **Translate**: The text automatically translates to the target language
+5. **Listen**: Use the speaker button to hear the translation
+6. **Continue Conversation**: Repeat the process for ongoing dialogue
 
-# Start development server
-npm run dev
+### Using AI Features
+1. **Enable AI Mode**: Toggle AI mode in the main interface
+2. **Monitor Medical Summary**: Watch the live medical summary update as you speak
+3. **Review Recommendations**: Check AI-generated medical recommendations
+4. **Track Symptoms**: Monitor automatically detected symptoms and medications
 
-# Build for production
-npm run build
+### Managing Conversations
+1. **Save Current Case**: Use the hamburger menu to save the current conversation
+2. **Load Previous Case**: Retrieve a saved conversation to continue
+3. **Generate Summary**: Create a comprehensive summary of the consultation
+4. **Start New Case**: Begin a fresh conversation when needed
 
-# Deploy to GitHub Pages
-npm run deploy
-```
+### Advanced Features
+1. **Manual Text Input**: Type messages directly when speech recognition fails
+2. **Medical Summary Modal**: View detailed medical analysis in a separate window
+3. **Conversation Summary**: Generate end-of-session summaries
+4. **API Key Management**: Add and manage multiple API keys for different providers
 
-## Translation Providers
+## Technical Requirements
 
-- **MyMemory (Free)**: No API key required, 100 requests/day
-- **OpenAI GPT-3.5**: Requires API key, best medical translation
-- **Google Translate**: Requires API key, good general translation
-- **DeepL**: Requires API key, excellent for European languages
+### Browser Compatibility
+- Chrome 88+
+- Firefox 85+
+- Safari 14+
+- Edge 88+
 
-## Technical Details
+### Required Permissions
+- Microphone access for speech recognition
+- Local storage for saving conversations and settings
 
-- **Framework**: React with TypeScript
-- **Styling**: Tailwind CSS with glassmorphism design
-- **Speech**: Web Speech API (built into browsers)
-- **Translation**: Multiple cloud APIs with fallback
-- **Storage**: Browser localStorage for API keys
-- **Deployment**: Static hosting ready
+### Internet Connection
+- Required for translation services and AI features
+- Works offline for saved conversations and basic interface
+
+## Security & Privacy
+
+### Data Protection
+- All medical data encrypted locally
+- API keys stored securely using Web Crypto API
+- No medical data transmitted to third parties unnecessarily
+- Local storage only - no cloud storage of sensitive information
+
+### HIPAA Compliance
+- Audit logging of all data access
+- Configurable privacy settings
+- Consent management for data processing
+- Breach detection and monitoring
+- Data retention controls
+
+## Support & Troubleshooting
+
+### Common Issues
+- **Speech Recognition Not Working**: Check microphone permissions and browser compatibility
+- **Translation Errors**: Verify API keys are correctly configured
+- **AI Features Unavailable**: Ensure AI mode is enabled and API keys are valid
+- **Saved Cases Not Loading**: Check browser storage permissions
+
+### Performance Optimization
+- Close unnecessary browser tabs
+- Ensure stable internet connection
+- Use supported browsers for best performance
+- Clear browser cache if experiencing issues
+
+## Development & Customization
+
+### Technology Stack
+- React 19 with TypeScript
+- Vite for build tooling
+- Tailwind CSS for styling
+- Framer Motion for animations
+- Web Speech API for speech recognition
+- Multiple AI translation providers
+
+### Modular Architecture
+- Component-based design for easy maintenance
+- Custom hooks for reusable logic
+- TypeScript for type safety
+- Responsive design for all devices
+
+## License & Usage
+
+This application is designed for medical professionals and healthcare organizations. Please ensure compliance with local medical regulations and data protection laws when using this tool in clinical settings.
+
+For technical support or feature requests, please contact the development team.
